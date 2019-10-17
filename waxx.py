@@ -3,6 +3,7 @@
 import queue
 import random
 import socket
+import sqlite3
 import threading
 import time
 
@@ -20,7 +21,20 @@ gauntlet = True
 # how many games to play concurrently
 max_concurrent = 32
 
+db_file = 'games.db'
+
 ###
+
+try:
+    conn = sqlite3.connect(db_file)
+    c = conn.cursor()
+    c.execute('PRAGMA journal_mode=WAL')
+    c.execute('CREATE TABLE results(ts datetime, p1 varchar(64), p2 varchar(64), result varchar(7))')
+    c.execute('CREATE TABLE players(user varchar(64), password varchar(64))')
+    conn.commit()
+    conn.close()
+except:
+    pass
 
 temp = open(book, 'r').readlines()
 book_lines = [line.rstrip('\n') for line in temp]
@@ -90,22 +104,32 @@ def play_game(p1, p2, t):
     print('%s versus %s: %s' % (p1.name, p2.name, board.result()))
 
     with lock:
-        fh = open(pgn_file, 'a')
-        fh.write(str(game))
-        fh.write('\n\n')
-        fh.close()
+        try:
+            fh = open(pgn_file, 'a')
+            fh.write(str(game))
+            fh.write('\n\n')
+            fh.close()
 
-        playing_clients.remove((p1, p2))
+            conn = sqlite3.connect(db_file)
+            c = conn.cursor()
+            c.execute('INSERT INTO results(p1, p2, result) VALUES(?, ?, ?)', (p1.name, p2.name))
+            conn.commit()
+            conn.close()
 
-        if fail1:
-            del p1
-        else:
-            idle_clients.append(p1)
+            playing_clients.remove((p1, p2))
 
-        if fail2:
-            del p2
-        else:
-            idle_clients.append(p2)
+            if fail1:
+                del p1
+            else:
+                idle_clients.append(p1)
+
+            if fail2:
+                del p2
+            else:
+                idle_clients.append(p2)
+
+        except Exception as e:
+            print('failure: %s' % e)
 
     return board.result()
 
@@ -136,14 +160,59 @@ def match_scheduler():
         time.sleep(1.5)
 
 def add_client(sck, addr):
-    e = ataxx.uai.Engine(sck, True)
-    e.uai()
-    e.isready()
+    try:
+        buf = ''
+        while not '\n' in buf or not 'user ' in buf:
+            buf += sck.recv(1024).decode()
 
-    print('Connected with %s which runs %s' % (addr, e.name))
+        lf = buf.find('\n')
+        user = buf[5:lf].lower().rstrip()
 
-    with lock:
-        idle_clients.append(e)
+        if user == '':
+            sck.close()
+            return
+
+        buf = buf[lf + 1:]
+        while not '\n' in buf or not 'pass ' in buf:
+            buf += sck.recv(1024).decode()
+
+        lf = buf.find('\n')
+        password = buf[5:lf].rstrip()
+
+        if password == '':
+            sck.close()
+            return
+
+        conn = sqlite3.connect(db_file)
+        c = conn.cursor()
+        c.execute('SELECT password FROM players WHERE user=?', (user,))
+        row = c.fetchone()
+        conn.close()
+
+        if row == None:
+            conn = sqlite3.connect(db_file)
+            c = conn.cursor()
+            c.execute('INSERT INTO players(user, password) VALUES(?, ?)', (user, password,))
+            conn.commit()
+            conn.close()
+
+        elif row[0] != password:
+            sck.send(bytes('Invalid password\n', encoding='utf8'))
+            sck.close()
+            return
+
+        e = ataxx.uai.Engine(sck, True)
+        e.uai()
+        e.isready()
+
+        print('Connected with %s (%s) running %s' % (addr, user, e.name))
+
+        with lock:
+            idle_clients.append(e)
+
+    except Exception as e:
+        print('Fail: %s' % e)
+        sck.close()
 
 idle_clients = []
 playing_clients = []
