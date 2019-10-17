@@ -41,10 +41,15 @@ book_lines = [line.rstrip('\n') for line in temp]
 
 lock = threading.Lock()
 
-def play_game(p1, p2, t):
+def play_game(p1_in, p2_in, t):
     global book_lines
 
-    print('Starting game between %s and %s' % (p1.name, p2.name))
+    p1 = p1_in[0]
+    p1_user = p1_in[1]
+    p2 = p2_in[0]
+    p2_user = p2_in[1]
+
+    print('Starting game between %s(%s) and %s(%s)' % (p1.name, p1_user, p2.name, p2_user))
 
     pos = random.choice(book_lines)
 
@@ -96,22 +101,22 @@ def play_game(p1, p2, t):
 
     game = ataxx.pgn.Game()
     game.from_board(board)
-    game.set_white(p1.name)
-    game.set_black(p2.name)
+    game.set_white(p1_user)
+    game.set_black(p2_user)
     if reason:
         game.set_adjudicated(reason)
 
-    print('%s versus %s: %s' % (p1.name, p2.name, board.result()))
+    print('%s(%s) versus %s(%s): %s' % (p1.name, p1_user, p2.name, p2_user, board.result()))
 
     with lock:
         try:
-            playing_clients.remove((p1, p2))
+            playing_clients.remove((p1_in, p2_in))
 
             if not fail1:
-                idle_clients.append(p1)
+                idle_clients.append(p1_in)
 
             if not fail2:
-                idle_clients.append(p2)
+                idle_clients.append(p2_in)
 
             fh = open(pgn_file, 'a')
             fh.write(str(game))
@@ -120,15 +125,15 @@ def play_game(p1, p2, t):
 
             conn = sqlite3.connect(db_file)
             c = conn.cursor()
-            c.execute('INSERT INTO results(p1, p2, result) VALUES(?, ?, ?)', (p1.name, p2.name, board.result(),))
+            c.execute('INSERT INTO results(p1, p2, result) VALUES(?, ?, ?)', (p1_user, p2_user, board.result(),))
             conn.commit()
             conn.close()
 
             if fail1:
-                del p1
+                del p1_in
 
             if fail2:
-                del p2
+                del p2_in
 
         except Exception as e:
             print('failure: %s' % e)
@@ -210,7 +215,7 @@ def add_client(sck, addr):
         print('Connected with %s (%s) running %s' % (addr, user, e.name))
 
         with lock:
-            idle_clients.append(e)
+            idle_clients.append((e, user))
 
     except Exception as e:
         print('Fail: %s' % e)
