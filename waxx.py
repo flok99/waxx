@@ -105,6 +105,14 @@ def play_game(p1, p2, t):
 
     with lock:
         try:
+            playing_clients.remove((p1, p2))
+
+            if not fail1:
+                idle_clients.append(p1)
+
+            if not fail2:
+                idle_clients.append(p2)
+
             fh = open(pgn_file, 'a')
             fh.write(str(game))
             fh.write('\n\n')
@@ -112,21 +120,15 @@ def play_game(p1, p2, t):
 
             conn = sqlite3.connect(db_file)
             c = conn.cursor()
-            c.execute('INSERT INTO results(p1, p2, result) VALUES(?, ?, ?)', (p1.name, p2.name))
+            c.execute('INSERT INTO results(p1, p2, result) VALUES(?, ?, ?)', (p1.name, p2.name, board.result(),))
             conn.commit()
             conn.close()
 
-            playing_clients.remove((p1, p2))
-
             if fail1:
                 del p1
-            else:
-                idle_clients.append(p1)
 
             if fail2:
                 del p2
-            else:
-                idle_clients.append(p2)
 
         except Exception as e:
             print('failure: %s' % e)
