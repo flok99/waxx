@@ -80,7 +80,8 @@ while True:
                         terminate = True
                     else:
                         print('server: %s' % dat.decode())
-                        p.stdin.write(dat.decode())
+                        if p.stdin.write(dat.decode()) == 0:
+                            terminate = True
                         p.stdin.flush()
 
                 elif fd == p.stdout.fileno():
@@ -89,7 +90,8 @@ while True:
                         terminate = True
                     else:
                         print('engine: ', dat)
-                        s.send(dat.encode('utf-8'))
+                        if s.send(dat.encode('utf-8')) == 0:
+                            terminate = True
 
                 else:
                     print('Unexpected error ', fd, flag)
