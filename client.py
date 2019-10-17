@@ -7,6 +7,7 @@ import select
 import socket
 import subprocess
 import sys
+import time
 import traceback
 
 def usage():
@@ -104,6 +105,10 @@ while True:
         p.terminate()
         p.wait()
         del p
+
+    except ConnectionRefusedError as e:
+        print('failure: %s' % e)
+        time.sleep(2.5)
 
     except Exception as e:
         print('failure: %s' % e)
