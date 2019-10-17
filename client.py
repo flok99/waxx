@@ -58,8 +58,8 @@ while True:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.connect((host, port))
 
-        s.send(bytes('user %s' % user, encoding='utf8'))
-        s.send(bytes('password %s' % password, encoding='utf8'))
+        s.send(bytes('user %s\n' % user, encoding='utf8'))
+        s.send(bytes('password %s\n' % password, encoding='utf8'))
 
         poller = select.poll()
         poller.register(s.fileno(), select.POLLIN)
