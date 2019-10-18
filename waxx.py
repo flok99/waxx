@@ -11,7 +11,7 @@ import ataxx.pgn
 import ataxx.uai
 
 # how many ms per move
-tpm = 150
+tpm = 10000
 # output
 pgn_file = 'games.pgn'
 # opening book, a list of FENs
@@ -68,6 +68,7 @@ def play_game(p1_in, p2_in, t):
 
             if bestmove == None:
                 fail1 = True
+                reason = '%s disconnected' % p1.name
                 p1.quit()
 
             t1 += time.time() - start
@@ -78,18 +79,20 @@ def play_game(p1_in, p2_in, t):
 
             if bestmove == None:
                 fail2 = True
+                reason = '%s disconnected' % p2.name
                 p2.quit()
 
             t2 += time.time() - start
 
-        if bestmove == None:
+        if bestmove == None and reason == None:
             reason = 'One/two clients disconnected'
             break
 
         move = ataxx.Move.from_san(bestmove)
 
         if board.is_legal(move) == False:
-            reason = 'Illegal move: %s' % bestmove
+            who = p1.name if board.turn == ataxx.BLACK else p2.name
+            reason = 'Illegal move by %s: %s' % (who, bestmove)
             break
 
         board.makemove(move)
