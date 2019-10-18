@@ -18,8 +18,6 @@ pgn_file = 'games.pgn'
 book = 'openings.txt'
 # gauntlet?
 gauntlet = True
-# how many games to play concurrently
-max_concurrent = 32
 
 db_file = 'games.db'
 
@@ -143,12 +141,14 @@ def play_game(p1_in, p2_in, t):
 def match_scheduler():
     while True:
         with lock:
-            n_idle = len(idle_clients)
-            n_play = len(playing_clients)
+            while True:
+                n_idle = len(idle_clients)
+                n_play = len(playing_clients)
 
-            print('idle: %d, playing: %d' % (n_idle, n_play * 2))
+                print('idle: %d, playing: %d' % (n_idle, n_play * 2))
 
-            if n_idle >= 2 and n_play < max_concurrent:
+                if n_idle < 2:
+                    break
 
                 i1 = i2 = 0
 
