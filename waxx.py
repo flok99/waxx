@@ -11,7 +11,7 @@ import ataxx.pgn
 import ataxx.uai
 
 # how many ms per move
-tpm = 10000
+tpm = 5000
 # output
 pgn_file = 'games.pgn'
 # opening book, a list of FENs
@@ -84,8 +84,9 @@ def play_game(p1_in, p2_in, t):
 
             t2 += time.time() - start
 
-        if bestmove == None and reason == None:
-            reason = 'One/two clients disconnected'
+        if bestmove == None:
+            if reason == None:
+                reason = 'One/two clients disconnected'
             break
 
         move = ataxx.Move.from_san(bestmove)
