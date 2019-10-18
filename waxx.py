@@ -27,7 +27,7 @@ try:
     conn = sqlite3.connect(db_file)
     c = conn.cursor()
     c.execute('PRAGMA journal_mode=WAL')
-    c.execute('CREATE TABLE results(ts datetime, p1 varchar(64), p2 varchar(64), result varchar(7))')
+    c.execute('CREATE TABLE results(ts datetime, p1 varchar(64), e1 varchar(128), t1 double, p2 varchar(64), e2 varchar(128), t2 double, result varchar(7), adjudication varchar(128))')
     c.execute('CREATE TABLE players(user varchar(64), password varchar(64))')
     conn.commit()
     conn.close()
@@ -57,7 +57,11 @@ def play_game(p1_in, p2_in, t):
 
     fail2 = fail1 = False
 
+    t1 = t2 = 0
+
     while not board.gameover():
+        start = time.time()
+
         if board.turn == ataxx.BLACK:
             p1.position(board.get_fen())
             bestmove, ponder = p1.go(movetime=t)
@@ -66,6 +70,8 @@ def play_game(p1_in, p2_in, t):
                 fail1 = True
                 p1.quit()
 
+            t1 += time.time() - start
+
         else:
             p2.position(board.get_fen())
             bestmove, ponder = p2.go(movetime=t)
@@ -73,6 +79,8 @@ def play_game(p1_in, p2_in, t):
             if bestmove == None:
                 fail2 = True
                 p2.quit()
+
+            t2 += time.time() - start
 
         if bestmove == None:
             reason = 'One/two clients disconnected'
@@ -104,7 +112,7 @@ def play_game(p1_in, p2_in, t):
     if reason:
         game.set_adjudicated(reason)
 
-    print('%s(%s) versus %s(%s): %s' % (p1.name, p1_user, p2.name, p2_user, board.result()))
+    print('%s(%s) versus %s(%s): %s (%s)' % (p1.name, p1_user, p2.name, p2_user, board.result(), reason))
 
     with lock:
         try:
@@ -121,9 +129,11 @@ def play_game(p1_in, p2_in, t):
             fh.write('\n\n')
             fh.close()
 
+            adjudication = reason if reason != None else ''
+
             conn = sqlite3.connect(db_file)
             c = conn.cursor()
-            c.execute('INSERT INTO results(p1, p2, result) VALUES(?, ?, ?)', (p1_user, p2_user, board.result(),))
+            c.execute("INSERT INTO results(ts, p1, e1, t1, p2, e2, t2, result, adjudication) VALUES(datetime('now', 'localtime'), ?, ?, ?, ?, ?, ?, ?, ?)", (p1_user, p1.name, t1, p2_user, p2.name, t2, board.result(), adjudication,))
             conn.commit()
             conn.close()
 
