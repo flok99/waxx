@@ -4,8 +4,10 @@ import mysql.connector
 import queue
 import random
 import socket
+import sys
 import threading
 import time
+import traceback
 
 import ataxx.pgn
 import ataxx.uai
@@ -145,7 +147,7 @@ def play_game(p1_in, p2_in, t):
 
             conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
             c = conn.cursor()
-            c.execute("INSERT INTO results(ts, p1, e1, t1, p2, e2, t2, result, adjudication, plies, tpm) VALUES(datetime('now', 'localtime'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (p1_user, p1.name, t1, p2_user, p2.name, t2, board.result(), adjudication, n_ply, t,))
+            c.execute("INSERT INTO results(ts, p1, e1, t1, p2, e2, t2, result, adjudication, plies, tpm) VALUES(NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", (p1_user, p1.name, t1, p2_user, p2.name, t2, board.result(), adjudication, n_ply, t,))
             conn.commit()
             conn.close()
 
@@ -214,14 +216,14 @@ def add_client(sck, addr):
 
         conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
         c = conn.cursor()
-        c.execute('SELECT password FROM players WHERE user=?', (user,))
+        c.execute('SELECT password FROM players WHERE user=%s', (user,))
         row = c.fetchone()
         conn.close()
 
         if row == None:
             conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
             c = conn.cursor()
-            c.execute('INSERT INTO players(user, password) VALUES(?, ?)', (user, password,))
+            c.execute('INSERT INTO players(user, password) VALUES(%s, %s)', (user, password,))
             conn.commit()
             conn.close()
 
@@ -242,6 +244,7 @@ def add_client(sck, addr):
     except Exception as e:
         print('Fail: %s' % e)
         sck.close()
+        traceback.print_exc(file=sys.stdout)
 
 idle_clients = []
 playing_clients = []
