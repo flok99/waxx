@@ -27,7 +27,7 @@ try:
     conn = sqlite3.connect(db_file)
     c = conn.cursor()
     c.execute('PRAGMA journal_mode=WAL')
-    c.execute('CREATE TABLE results(ts datetime, p1 varchar(64), e1 varchar(128), t1 double, p2 varchar(64), e2 varchar(128), t2 double, result varchar(7), adjudication varchar(128), plies int)')
+    c.execute('CREATE TABLE results(ts datetime, p1 varchar(64), e1 varchar(128), t1 double, p2 varchar(64), e2 varchar(128), t2 double, result varchar(7), adjudication varchar(128), plies int, tpm int)')
     c.execute('CREATE TABLE players(user varchar(64), password varchar(64), primary key(user))')
     conn.commit()
     conn.close()
@@ -141,7 +141,7 @@ def play_game(p1_in, p2_in, t):
 
             conn = sqlite3.connect(db_file)
             c = conn.cursor()
-            c.execute("INSERT INTO results(ts, p1, e1, t1, p2, e2, t2, result, adjudication, plies) VALUES(datetime('now', 'localtime'), ?, ?, ?, ?, ?, ?, ?, ?, ?)", (p1_user, p1.name, t1, p2_user, p2.name, t2, board.result(), adjudication, n_ply,))
+            c.execute("INSERT INTO results(ts, p1, e1, t1, p2, e2, t2, result, adjudication, plies, tpm) VALUES(datetime('now', 'localtime'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (p1_user, p1.name, t1, p2_user, p2.name, t2, board.result(), adjudication, n_ply, t,))
             conn.commit()
             conn.close()
 
