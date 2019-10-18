@@ -145,7 +145,8 @@ def play_game(p1_in, p2_in, t):
             fh.close()
 
             pgn = str(game)
-            hash_ = hashlib.md5('%f %s %s' % (time.time(), p1.name, p2.name)).digest()
+            hash_in = '%f %s %s' % (time.time(), p1.name, p2.name)
+            hash_ = hashlib.md5(hash_in.encode('utf-8')).hexdigest()
 
             adjudication = reason if reason != None else ''
 
