@@ -28,7 +28,7 @@ try:
     c = conn.cursor()
     c.execute('PRAGMA journal_mode=WAL')
     c.execute('CREATE TABLE results(ts datetime, p1 varchar(64), e1 varchar(128), t1 double, p2 varchar(64), e2 varchar(128), t2 double, result varchar(7), adjudication varchar(128), plies int)')
-    c.execute('CREATE TABLE players(user varchar(64), password varchar(64))')
+    c.execute('CREATE TABLE players(user varchar(64), password varchar(64), primary key(user))')
     conn.commit()
     conn.close()
 except:
