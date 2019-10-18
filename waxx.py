@@ -1,9 +1,9 @@
 #! /usr/bin/python3
 
+import mysql.connector
 import queue
 import random
 import socket
-import sqlite3
 import threading
 import time
 
@@ -19,19 +19,23 @@ book = 'openings.txt'
 # gauntlet?
 gauntlet = True
 
-db_file = 'games.db'
+# this user needs a GRANT ALL
+db_host = '192.168.64.1'
+db_user = 'user'
+db_pass = 'pass'
+db_db = 'waxx'
 
 ###
 
 try:
-    conn = sqlite3.connect(db_file)
+    conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
     c = conn.cursor()
-    c.execute('PRAGMA journal_mode=WAL')
     c.execute('CREATE TABLE results(ts datetime, p1 varchar(64), e1 varchar(128), t1 double, p2 varchar(64), e2 varchar(128), t2 double, result varchar(7), adjudication varchar(128), plies int, tpm int)')
     c.execute('CREATE TABLE players(user varchar(64), password varchar(64), primary key(user))')
     conn.commit()
     conn.close()
-except:
+except Exception as e:
+    print(e)
     pass
 
 temp = open(book, 'r').readlines()
@@ -139,7 +143,7 @@ def play_game(p1_in, p2_in, t):
 
             adjudication = reason if reason != None else ''
 
-            conn = sqlite3.connect(db_file)
+            conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
             c = conn.cursor()
             c.execute("INSERT INTO results(ts, p1, e1, t1, p2, e2, t2, result, adjudication, plies, tpm) VALUES(datetime('now', 'localtime'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (p1_user, p1.name, t1, p2_user, p2.name, t2, board.result(), adjudication, n_ply, t,))
             conn.commit()
@@ -208,14 +212,14 @@ def add_client(sck, addr):
             sck.close()
             return
 
-        conn = sqlite3.connect(db_file)
+        conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
         c = conn.cursor()
         c.execute('SELECT password FROM players WHERE user=?', (user,))
         row = c.fetchone()
         conn.close()
 
         if row == None:
-            conn = sqlite3.connect(db_file)
+            conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
             c = conn.cursor()
             c.execute('INSERT INTO players(user, password) VALUES(?, ?)', (user, password,))
             conn.commit()
