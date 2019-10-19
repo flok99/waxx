@@ -170,15 +170,12 @@ def play_game(p1_in, p2_in, t):
 def match_scheduler():
     while True:
         with lock:
-            while True:
-                n_idle = len(idle_clients)
-                n_play = len(playing_clients)
+            n_idle = len(idle_clients)
+            n_play = len(playing_clients)
 
-                print('idle: %d, playing: %d' % (n_idle, n_play * 2))
+            print('idle: %d, playing: %d' % (n_idle, n_play * 2))
 
-                if n_idle < 2:
-                    break
-
+            if n_idle >= 2:
                 i1 = i2 = 0
 
                 while i1 == i2:
@@ -244,6 +241,14 @@ def add_client(sck, addr):
         print('Connected with %s (%s) running %s' % (addr, user, e.name))
 
         with lock:
+            for clnt in idle_clients:
+                print('verify', clnt)
+
+                if clnt[1] == user:
+                    print('Removing duplicate user %s' % user)
+                    idle_clients.remove(clnt)
+                    clnt[0].quit()
+
             idle_clients.append((e, user))
 
     except Exception as e:
