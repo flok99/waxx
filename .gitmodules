@@ -1,0 +1,3 @@
+[submodule "EloPy"]
+	path = EloPy
+	url = https://github.com/HankSheehan/EloPy

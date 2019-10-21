@@ -10,6 +10,8 @@ import threading
 import time
 import traceback
 
+from EloPy import elopy
+
 import ataxx.pgn
 import ataxx.uai
 
@@ -34,11 +36,11 @@ try:
     conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
     c = conn.cursor()
     c.execute('CREATE TABLE results(ts datetime, p1 varchar(64), e1 varchar(128), t1 double, p2 varchar(64), e2 varchar(128), t2 double, result varchar(7), adjudication varchar(128), plies int, tpm int, pgn text, md5 char(32))')
-    c.execute('CREATE TABLE players(user varchar(64), password varchar(64), primary key(user))')
+    c.execute('CREATE TABLE players(user varchar(64), password varchar(64), rating double default 1000, w int(8) default 0, d int(8) default 0, l int(8) default 0, primary key(user))')
     conn.commit()
     conn.close()
 except Exception as e:
-    print(e)
+    print('db create:', e)
     pass
 
 temp = open(book, 'r').readlines()
@@ -131,6 +133,7 @@ def play_game(p1_in, p2_in, t):
 
     with lock:
         try:
+            # update internal structures representing who is playing or not
             playing_clients.remove((p1_in, p2_in))
 
             if not fail1:
@@ -139,11 +142,13 @@ def play_game(p1_in, p2_in, t):
             if not fail2:
                 idle_clients.append(p2_in)
 
+            # update pgn file
             fh = open(pgn_file, 'a')
             fh.write(str(game))
             fh.write('\n\n')
             fh.close()
 
+            # put result record in results table
             pgn = str(game)
             hash_in = '%f %s %s' % (time.time(), p1.name, p2.name)
             hash_ = hashlib.md5(hash_in.encode('utf-8')).hexdigest()
@@ -156,6 +161,48 @@ def play_game(p1_in, p2_in, t):
             conn.commit()
             conn.close()
 
+            # update rating of the user
+            i = elopy.Implementation()
+
+            conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
+            c = conn.cursor()
+
+            # get
+            c.execute("SELECT rating FROM players WHERE user=%s", (p1_user,))
+            row = c.fetchone()
+            i.addPlayer(p1_user, rating=float(row[0]))
+
+            c.execute("SELECT rating FROM players WHERE user=%s", (p2_user,))
+            row = c.fetchone()
+            i.addPlayer(p2_user, rating=float(row[0]))
+
+            # update
+            if board.result() == '1-0':
+                i.recordMatch(p1_user, p2_user, winner=p1_user)
+            elif board.result() == '0-1':
+                i.recordMatch(p1_user, p2_user, winner=p2_user)
+            else:
+                i.recordMatch(p1_user, p2_user, draw=True)
+
+            # put
+            for r in i.getRatingList():
+                c.execute("UPDATE players SET rating=%s WHERE user=%s", (r[1], r[0]))
+
+            if board.result() == '1-0':
+                c.execute("UPDATE players SET w=w+1 WHERE user=%s", (p1_user,))
+                c.execute("UPDATE players SET l=l+1 WHERE user=%s", (p2_user,))
+            elif board.result() == '0-1':
+                c.execute("UPDATE players SET l=l+1 WHERE user=%s", (p1_user,))
+                c.execute("UPDATE players SET w=w+1 WHERE user=%s", (p2_user,))
+            else:
+                c.execute("UPDATE players SET d=d+1 WHERE user=%s", (p1_user,))
+                c.execute("UPDATE players SET d=d+1 WHERE user=%s", (p2_user,))
+
+            conn.commit()
+            conn.close()
+
+            del i
+
             if fail1:
                 del p1_in
 
@@ -164,6 +211,7 @@ def play_game(p1_in, p2_in, t):
 
         except Exception as e:
             print('failure: %s' % e)
+            traceback.print_exc(file=sys.stdout)
 
     return board.result()
 
@@ -225,7 +273,7 @@ def add_client(sck, addr):
         if row == None:
             conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
             c = conn.cursor()
-            c.execute('INSERT INTO players(user, password) VALUES(%s, %s)', (user, password,))
+            c.execute('INSERT INTO players(user, password, rating) VALUES(%s, %s, 1000)', (user, password,))
             conn.commit()
             conn.close()
 
