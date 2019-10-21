@@ -44,7 +44,7 @@ try:
     conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
     c = conn.cursor()
     c.execute('CREATE TABLE results(ts datetime, p1 varchar(64), e1 varchar(128), t1 double, p2 varchar(64), e2 varchar(128), t2 double, result varchar(7), adjudication varchar(128), plies int, tpm int, pgn text, md5 char(32))')
-    c.execute('CREATE TABLE players(user varchar(64), password varchar(64), rating double default 1000, w int(8) default 0, d int(8) default 0, l int(8) default 0, primary key(user))')
+    c.execute('CREATE TABLE players(user varchar(64), password varchar(64), rating double default 1000, w int(8) default 0, d int(8) default 0, l int(8) default 0, failure_count int(8) default 0, primary key(user))')
     conn.commit()
     conn.close()
 except Exception as e:
@@ -144,11 +144,21 @@ def play_game(p1_in, p2_in, t):
             # update internal structures representing who is playing or not
             playing_clients.remove((p1_in, p2_in))
 
-            if not fail1:
+            conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
+            c = conn.cursor()
+
+            if fail1:
+                c.execute("UPDATE players SET failure_count=failure_count+1 WHERE user=%s", (p1_user,))
+            else:
                 idle_clients.append(p1_in)
 
-            if not fail2:
+            if fail2:
+                c.execute("UPDATE players SET failure_count=failure_count+1 WHERE user=%s", (p2_user,))
+            else:
                 idle_clients.append(p2_in)
+
+            conn.commit()
+            conn.close()
 
             ## update pgn file
             #fh = open(pgn_file, 'a')
