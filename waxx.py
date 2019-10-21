@@ -170,46 +170,47 @@ def play_game(p1_in, p2_in, t):
             conn.close()
 
             # update rating of the user
-            i = elopy.Implementation()
+            if not fail1 and not fail2:
+                i = elopy.Implementation()
 
-            conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
-            c = conn.cursor()
+                conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
+                c = conn.cursor()
 
-            # get
-            c.execute("SELECT rating FROM players WHERE user=%s", (p1_user,))
-            row = c.fetchone()
-            i.addPlayer(p1_user, rating=float(row[0]))
+                # get
+                c.execute("SELECT rating FROM players WHERE user=%s", (p1_user,))
+                row = c.fetchone()
+                i.addPlayer(p1_user, rating=float(row[0]))
 
-            c.execute("SELECT rating FROM players WHERE user=%s", (p2_user,))
-            row = c.fetchone()
-            i.addPlayer(p2_user, rating=float(row[0]))
+                c.execute("SELECT rating FROM players WHERE user=%s", (p2_user,))
+                row = c.fetchone()
+                i.addPlayer(p2_user, rating=float(row[0]))
 
-            # update
-            if board.result() == '1-0':
-                i.recordMatch(p1_user, p2_user, winner=p1_user)
-            elif board.result() == '0-1':
-                i.recordMatch(p1_user, p2_user, winner=p2_user)
-            else:
-                i.recordMatch(p1_user, p2_user, draw=True)
+                # update
+                if board.result() == '1-0':
+                    i.recordMatch(p1_user, p2_user, winner=p1_user)
+                elif board.result() == '0-1':
+                    i.recordMatch(p1_user, p2_user, winner=p2_user)
+                else:
+                    i.recordMatch(p1_user, p2_user, draw=True)
 
-            # put
-            for r in i.getRatingList():
-                c.execute("UPDATE players SET rating=%s WHERE user=%s", (r[1], r[0]))
+                # put
+                for r in i.getRatingList():
+                    c.execute("UPDATE players SET rating=%s WHERE user=%s", (r[1], r[0]))
 
-            if board.result() == '1-0':
-                c.execute("UPDATE players SET w=w+1 WHERE user=%s", (p1_user,))
-                c.execute("UPDATE players SET l=l+1 WHERE user=%s", (p2_user,))
-            elif board.result() == '0-1':
-                c.execute("UPDATE players SET l=l+1 WHERE user=%s", (p1_user,))
-                c.execute("UPDATE players SET w=w+1 WHERE user=%s", (p2_user,))
-            else:
-                c.execute("UPDATE players SET d=d+1 WHERE user=%s", (p1_user,))
-                c.execute("UPDATE players SET d=d+1 WHERE user=%s", (p2_user,))
+                if board.result() == '1-0':
+                    c.execute("UPDATE players SET w=w+1 WHERE user=%s", (p1_user,))
+                    c.execute("UPDATE players SET l=l+1 WHERE user=%s", (p2_user,))
+                elif board.result() == '0-1':
+                    c.execute("UPDATE players SET l=l+1 WHERE user=%s", (p1_user,))
+                    c.execute("UPDATE players SET w=w+1 WHERE user=%s", (p2_user,))
+                else:
+                    c.execute("UPDATE players SET d=d+1 WHERE user=%s", (p1_user,))
+                    c.execute("UPDATE players SET d=d+1 WHERE user=%s", (p2_user,))
 
-            conn.commit()
-            conn.close()
+                conn.commit()
+                conn.close()
 
-            del i
+                del i
 
             if fail1:
                 del p1_in
