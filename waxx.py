@@ -10,7 +10,7 @@ import threading
 import time
 import traceback
 
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, HTTPServer, BaseHTTPRequestHandler
 
 from EloPy import elopy
 
@@ -244,7 +244,7 @@ def match_scheduler():
 
             print('idle: %d, playing: %d' % (n_idle, n_play * 2))
 
-            for i in range(0, n_idle // 2):
+            for loop in range(0, n_idle // 2):
                 i1 = i2 = 0
 
                 while i1 == i2:
@@ -377,7 +377,7 @@ class http_server(BaseHTTPRequestHandler):
     def do_HEAD(self):
         self._set_headers()
 
-def run_httpd(server_class=HTTPServer, handler_class=http_server, addr='localhost', port=http_port):
+def run_httpd(server_class=ThreadingHTTPServer, handler_class=http_server, addr='localhost', port=http_port):
     server_address = (addr, port)
     httpd = server_class(server_address, handler_class)
 
