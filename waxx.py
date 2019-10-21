@@ -35,6 +35,9 @@ db_db = 'waxx'
 # http server
 http_port = 7623
 
+# match history
+match_history_size = 25
+
 ###
 
 try:
@@ -221,6 +224,8 @@ def play_game(p1_in, p2_in, t):
     return board.result()
 
 def match_scheduler():
+    before = []
+
     while True:
         with lock:
             n_idle = len(idle_clients)
@@ -228,20 +233,30 @@ def match_scheduler():
 
             print('idle: %d, playing: %d' % (n_idle, n_play * 2))
 
-            if n_idle >= 2:
+            for i in range(0, n_idle // 2):
                 i1 = i2 = 0
 
                 while i1 == i2:
                     i1 = random.choice(idle_clients)
                     i2 = random.choice(idle_clients)
 
-                idle_clients.remove(i1)
-                idle_clients.remove(i2)
+                pair = '%s | %s' % (i1[0].name, i2[0].name)
 
-                playing_clients.append((i1, i2))
+                if not pair in before or n_play == 0:
+                    idle_clients.remove(i1)
+                    idle_clients.remove(i2)
 
-                t = threading.Thread(target=play_game, args=(i1, i2, tpm,))
-                t.start()
+                    playing_clients.append((i1, i2))
+
+                    t = threading.Thread(target=play_game, args=(i1, i2, tpm,))
+                    t.start()
+
+                    before.append(pair)
+
+                    if len(before) > match_history_size:
+                        del before[0]
+                else:
+                    print('"%s" already in history (size %d/%d)' % (pair, len(before), match_history_size))
 
         time.sleep(1.5)
 
@@ -295,8 +310,6 @@ def add_client(sck, addr):
 
         with lock:
             for clnt in idle_clients:
-                print('verify', clnt)
-
                 if clnt[1] == user:
                     print('Removing duplicate user %s' % user)
                     idle_clients.remove(clnt)
