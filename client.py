@@ -80,7 +80,7 @@ while True:
                     if dat == None:
                         terminate = True
                     else:
-                        print('server: %s' % dat.decode())
+                        print(time.asctime(), 'server: %s' % dat.decode())
                         if p.stdin.write(dat.decode()) == 0:
                             terminate = True
                         p.stdin.flush()
@@ -90,7 +90,7 @@ while True:
                     if dat == None:
                         terminate = True
                     else:
-                        print('engine: ', dat)
+                        print(time.asctime(), 'engine: ', dat)
                         if s.send(dat.encode('utf-8')) == 0:
                             terminate = True
 
@@ -98,13 +98,8 @@ while True:
                     print('Unexpected error ', fd, flag)
                     break
 
-        s.close()
-        del s
-
-        p.stdout.close()
-        p.terminate()
-        p.wait()
-        del p
+        if terminate:
+            time.sleep(2.5)
 
     except ConnectionRefusedError as e:
         print('failure: %s' % e)
@@ -114,3 +109,12 @@ while True:
         print('failure: %s' % e)
         traceback.print_exc(file=sys.stdout)
         break
+
+    finally:
+        s.close()
+        del s
+
+        p.stdout.close()
+        p.terminate()
+        p.wait()
+        del p
