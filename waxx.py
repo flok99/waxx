@@ -251,7 +251,7 @@ def match_scheduler():
                     i1 = random.choice(idle_clients)
                     i2 = random.choice(idle_clients)
 
-                pair = '%s | %s' % (i1[0].name, i2[0].name)
+                pair = '%s | %s' % (i1[1], i2[1])
 
                 if not pair in before or n_play == 0:
                     idle_clients.remove(i1)
