@@ -10,6 +10,8 @@ import threading
 import time
 import traceback
 
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
 from EloPy import elopy
 
 import ataxx.pgn
@@ -29,6 +31,9 @@ db_host = '192.168.64.1'
 db_user = 'user'
 db_pass = 'pass'
 db_db = 'waxx'
+
+# http server
+http_port = 7623
 
 ###
 
@@ -142,11 +147,11 @@ def play_game(p1_in, p2_in, t):
             if not fail2:
                 idle_clients.append(p2_in)
 
-            # update pgn file
-            fh = open(pgn_file, 'a')
-            fh.write(str(game))
-            fh.write('\n\n')
-            fh.close()
+            ## update pgn file
+            #fh = open(pgn_file, 'a')
+            #fh.write(str(game))
+            #fh.write('\n\n')
+            #fh.close()
 
             # put result record in results table
             pgn = str(game)
@@ -304,10 +309,64 @@ def add_client(sck, addr):
         sck.close()
         traceback.print_exc(file=sys.stdout)
 
+class http_server(BaseHTTPRequestHandler):
+    def _set_headers(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/html")
+        self.end_headers()
+
+    def do_GET(self):
+        self._set_headers()
+
+        out = '<h3>idle players</h3><table><tr><th>user</th><th>program</th></tr>'
+
+        with lock:
+            for clnt in idle_clients:
+                p1 = clnt[0]
+                p1_name = p1.name
+                p1_user = clnt[1]
+
+                out += '<tr><td>%s</td><td>%s</td></tr>' % (p1_user, p1_name)
+
+        out += '</table>'
+
+        out += '<h3>playing players</h3><table><tr><th>player 1</th><th>player 2</th></tr>'
+
+        with lock:
+            for couple in playing_clients:
+                clnt1 = couple[0]
+                p1 = clnt1[0]
+                p1_name = p1.name
+                p1_user = clnt1[1]
+
+                clnt2 = couple[1]
+                p2 = clnt2[0]
+                p2_name = p2.name
+                p2_user = clnt2[1]
+
+                out += '<tr><td>%s / %s</td><td>%s / %s</td></tr>' % (p1_user, p1_name, p2_user, p2_name)
+
+        out += '</table>'
+
+        self.wfile.write(out.encode('utf8'))
+
+    def do_HEAD(self):
+        self._set_headers()
+
+def run_httpd(server_class=HTTPServer, handler_class=http_server, addr='localhost', port=http_port):
+    server_address = (addr, port)
+    httpd = server_class(server_address, handler_class)
+
+    print(f"Starting httpd server on {addr}:{port}")
+    httpd.serve_forever()
+
 idle_clients = []
 playing_clients = []
 
 t = threading.Thread(target=match_scheduler)
+t.start()
+
+t = threading.Thread(target=run_httpd)
 t.start()
 
 HOST = ''
