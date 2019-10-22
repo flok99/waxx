@@ -317,7 +317,13 @@ def add_client(sck, addr):
         e.uai()
         e.isready()
 
-        print('Connected with %s (%s) running %s' % (addr, user, e.name))
+        print('Connected with %s (%s) running %s (by %s)' % (addr, user, e.name, e.author))
+
+        conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
+        c = conn.cursor()
+        c.execute('UPDATE players SET author=%s WHERE user=%s', (e.author, user,))
+        conn.commit()
+        conn.close()
 
         with lock:
             for clnt in idle_clients:
