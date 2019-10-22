@@ -26,9 +26,10 @@ print('Content-Type: text/plain\r\n')
 for game in ataxx.pgn.GameIterator(row[0], is_string=True):
     if 'FEN' in game.headers:
         b = ataxx.Board(game.headers['FEN'])
-        print('START %s' % game.headers['FEN'])
     else:
         b = ataxx.Board()
+
+    print('START %s' % b.get_fen())
 
     for node in game.main_line():
         b.makemove(node.move)
