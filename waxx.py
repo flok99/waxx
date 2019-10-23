@@ -4,6 +4,7 @@ import hashlib
 import mysql.connector
 import queue
 import random
+from random import randint
 import socket
 import sys
 import threading
@@ -19,6 +20,7 @@ import ataxx.uai
 
 # how many ms per move
 tpm = 5000
+time_buffer = 100
 # output
 pgn_file = 'games.pgn'
 # opening book, a list of FENs
@@ -56,7 +58,7 @@ book_lines = [line.rstrip('\n') for line in temp]
 
 lock = threading.Lock()
 
-def play_game(p1_in, p2_in, t):
+def play_game(p1_in, p2_in, t, time_buffer):
     global book_lines
 
     p1 = p1_in[0]
@@ -80,6 +82,7 @@ def play_game(p1_in, p2_in, t):
 
     while not board.gameover():
         start = time.time()
+        took = None
 
         if board.turn == ataxx.BLACK:
             p1.position(board.get_fen())
@@ -90,7 +93,8 @@ def play_game(p1_in, p2_in, t):
                 reason = '%s disconnected' % p1.name
                 p1.quit()
 
-            t1 += time.time() - start
+            took = time.time() - start
+            t1 += took
 
         else:
             p2.position(board.get_fen())
@@ -101,7 +105,15 @@ def play_game(p1_in, p2_in, t):
                 reason = '%s disconnected' % p2.name
                 p2.quit()
 
-            t2 += time.time() - start
+            took = time.time() - start
+            t2 += took
+
+        if took >= t + time_buffer and reason == None:
+            who = p1.name if board.turn == ataxx.BLACK else p2.name
+            print('%s used %d seconds' % (who, took))
+            #reason = '%s used %d seconds' % (who, took)
+            #break
+
 
         if bestmove == None:
             if reason == None:
@@ -234,40 +246,70 @@ def play_game(p1_in, p2_in, t):
 
     return board.result()
 
-def match_scheduler():
-    before = []
+# https://stackoverflow.com/questions/14992521/python-weighted-random
+def weighted_random(pairs):
+    total = sum(pair[0] for pair in pairs)
 
+    r = randint(1, total)
+
+    for(weight, value) in pairs:
+        r -= weight
+
+        if r <= 0:
+            return value
+
+def select_client(idle_clients):
+    pairs = []
+
+    conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
+    c = conn.cursor()
+
+    c.execute('SELECT MAX(w+d+l) AS count FROM players')
+    max_ = c.fetchone()[0]
+
+    for client in idle_clients:
+        c.execute('SELECT w+d+l AS count FROM players WHERE user=%s', (client[1],))
+        row = c.fetchone()
+
+        pairs.append((max_ - row[0], client))
+
+    conn.close()
+
+    return weighted_random(pairs)
+
+def match_scheduler():
     while True:
         with lock:
             n_idle = len(idle_clients)
             n_play = len(playing_clients)
 
-            print('idle: %d, playing: %d' % (n_idle, n_play * 2))
+            print('idle: %d, playing: %d' % (n_idle, n_play * 2), end='\r')
 
             for loop in range(0, n_idle // 2):
                 i1 = i2 = 0
 
+                attempt = 0
                 while i1 == i2:
-                    i1 = random.choice(idle_clients)
+                    i1 = select_client(idle_clients)
                     i2 = random.choice(idle_clients)
+
+                    attempt += 1
+                    if attempt >= 5:
+                        break
+
+                if i1 == i2:
+                    print('Cannot find a pair')
+                    break
 
                 pair = '%s | %s' % (i1[1], i2[1])
 
-                if not pair in before or n_play == 0:
-                    idle_clients.remove(i1)
-                    idle_clients.remove(i2)
+                idle_clients.remove(i1)
+                idle_clients.remove(i2)
 
-                    playing_clients.append((i1, i2))
+                playing_clients.append((i1, i2))
 
-                    t = threading.Thread(target=play_game, args=(i1, i2, tpm,))
-                    t.start()
-
-                    before.append(pair)
-
-                    if len(before) > match_history_size:
-                        del before[0]
-                else:
-                    print('"%s" already in history (size %d/%d)' % (pair, len(before), match_history_size))
+                t = threading.Thread(target=play_game, args=(i1, i2, tpm, time_buffer, ))
+                t.start()
 
         time.sleep(1.5)
 
@@ -321,7 +363,7 @@ def add_client(sck, addr):
 
         conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
         c = conn.cursor()
-        c.execute('UPDATE players SET author=%s WHERE user=%s', (e.author, user,))
+        c.execute('UPDATE players SET author=%s, engine=%s WHERE user=%s', (e.author, e.name, user,))
         conn.commit()
         conn.close()
 

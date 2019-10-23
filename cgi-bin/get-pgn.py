@@ -21,7 +21,7 @@ row = c.fetchone()
 conn.commit()
 conn.close()
 
-print('Content-Type: text/plain\r\n')
+print('Content-Type: text/plain\r\n\r')
 
 for game in ataxx.pgn.GameIterator(row[0], is_string=True):
     if 'FEN' in game.headers:
