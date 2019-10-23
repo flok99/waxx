@@ -1,6 +1,7 @@
 #! /usr/bin/python3
 
 import hashlib
+import json
 import mysql.connector
 import queue
 import random
@@ -20,9 +21,10 @@ import ataxx.uai
 
 # how many ms per move
 tpm = 5000
-time_buffer = 100
+time_buffer_soft = 200 # be aware of ping times
+time_buffer_hard = 1000
 # output
-pgn_file = 'games.pgn'
+pgn_file = None
 # opening book, a list of FENs
 book = 'openings.txt'
 # gauntlet?
@@ -76,7 +78,7 @@ book_lines = [line.rstrip('\n') for line in temp]
 
 lock = threading.Lock()
 
-def play_game(p1_in, p2_in, t, time_buffer):
+def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
     global book_lines
 
     p1 = p1_in[0]
@@ -126,13 +128,15 @@ def play_game(p1_in, p2_in, t, time_buffer):
             took = time.time() - start
             t2 += took
 
-        t_left = t + time_buffer - took * 1000
+        t_left = t + time_buffer_soft - took * 1000
         if t_left < 0 and reason == None:
             who = p1.name if board.turn == ataxx.BLACK else p2.name
             reason = '%s used too much time' % who
             flog('%s used %fms too much time' % (who, -t_left))
-            #break
 
+            if t + time_buffer_hard - took * 1000 < 0:
+                flog('%s went over the hard limit')
+                break
 
         if bestmove == None:
             if reason == None:
@@ -191,11 +195,12 @@ def play_game(p1_in, p2_in, t, time_buffer):
             conn.commit()
             conn.close()
 
-            ## update pgn file
-            #fh = open(pgn_file, 'a')
-            #fh.write(str(game))
-            #fh.write('\n\n')
-            #fh.close()
+            # update pgn file
+            if pgn_file:
+                fh = open(pgn_file, 'a')
+                fh.write(str(game))
+                fh.write('\n\n')
+                fh.close()
 
             # put result record in results table
             pgn = str(game)
@@ -283,11 +288,11 @@ def select_client(idle_clients):
     conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
     c = conn.cursor()
 
-    c.execute('SELECT MAX(rating) AS count FROM players')
+    c.execute('SELECT MAX(w + d + l) AS count FROM players')
     max_ = c.fetchone()[0]
 
     for client in idle_clients:
-        c.execute('SELECT rating AS count FROM players WHERE user=%s', (client[1],))
+        c.execute('SELECT w + d + l AS count FROM players WHERE user=%s', (client[1],))
         row = c.fetchone()
 
         pairs.append((round(max_ - row[0]), client))
@@ -297,6 +302,8 @@ def select_client(idle_clients):
     return weighted_random(pairs)
 
 def match_scheduler():
+    before = []
+
     while True:
         with lock:
             n_idle = len(idle_clients)
@@ -322,13 +329,22 @@ def match_scheduler():
 
                 pair = '%s | %s' % (i1[1], i2[1])
 
-                idle_clients.remove(i1)
-                idle_clients.remove(i2)
+                if not pair in before or n_play == 0:
+                    idle_clients.remove(i1)
+                    idle_clients.remove(i2)
 
-                playing_clients.append((i1, i2))
+                    playing_clients.append((i1, i2))
 
-                t = threading.Thread(target=play_game, args=(i1, i2, tpm, time_buffer, ))
-                t.start()
+                    t = threading.Thread(target=play_game, args=(i1, i2, tpm, time_buffer_soft, time_buffer_hard, ))
+                    t.start()
+
+                    before.append(pair)
+
+                    while len(before) >= match_history_size:
+                        del before[0]
+
+                else:
+                    flog('pair "%s" already in history' % pair)
 
         time.sleep(1.5)
 
@@ -409,35 +425,73 @@ class http_server(BaseHTTPRequestHandler):
     def do_GET(self):
         self._set_headers()
 
-        out = '<h3>idle players</h3><table><tr><th>user</th><th>program</th></tr>'
+        flog('HTTP request for %s' % self.path)
 
-        with lock:
-            for clnt in idle_clients:
-                p1 = clnt[0]
-                p1_name = p1.name
-                p1_user = clnt[1]
+        out = None
 
-                out += '<tr><td>%s</td><td>%s</td></tr>' % (p1_user, p1_name)
+        if self.path == '/':
+            out = '<h3>idle players</h3><table><tr><th>user</th><th>program</th></tr>'
 
-        out += '</table>'
+            with lock:
+                for clnt in idle_clients:
+                    p1 = clnt[0]
+                    p1_name = p1.name
+                    p1_user = clnt[1]
 
-        out += '<h3>playing players</h3><table><tr><th>player 1</th><th>player 2</th></tr>'
+                    out += '<tr><td>%s</td><td>%s</td></tr>' % (p1_user, p1_name)
 
-        with lock:
-            for couple in playing_clients:
-                clnt1 = couple[0]
-                p1 = clnt1[0]
-                p1_name = p1.name
-                p1_user = clnt1[1]
+            out += '</table>'
 
-                clnt2 = couple[1]
-                p2 = clnt2[0]
-                p2_name = p2.name
-                p2_user = clnt2[1]
+            out += '<h3>playing players</h3><table><tr><th>player 1</th><th>player 2</th></tr>'
 
-                out += '<tr><td>%s / %s</td><td>%s / %s</td></tr>' % (p1_user, p1_name, p2_user, p2_name)
+            with lock:
+                for couple in playing_clients:
+                    clnt1 = couple[0]
+                    p1 = clnt1[0]
+                    p1_name = p1.name
+                    p1_user = clnt1[1]
 
-        out += '</table>'
+                    clnt2 = couple[1]
+                    p2 = clnt2[0]
+                    p2_name = p2.name
+                    p2_user = clnt2[1]
+
+                    out += '<tr><td>%s / %s</td><td>%s / %s</td></tr>' % (p1_user, p1_name, p2_user, p2_name)
+
+            out += '</table>'
+
+        elif self.path == '/json':
+            idles = []
+
+            with lock:
+                for clnt in idle_clients:
+                    p1 = clnt[0]
+                    p1_name = p1.name
+                    p1_user = clnt[1]
+
+                    idles.append({ 'user' : p1_user, 'name' : p1_name })
+
+            playing = []
+
+            with lock:
+                for couple in playing_clients:
+                    clnt1 = couple[0]
+                    p1 = clnt1[0]
+                    p1_name = p1.name
+                    p1_user = clnt1[1]
+
+                    playing.append({ 'player_1' : { 'user' : p1_user, 'name' : p1_name } })
+
+                    clnt2 = couple[1]
+                    p2 = clnt2[0]
+                    p2_name = p2.name
+                    p2_user = clnt2[1]
+
+                    playing.append({ 'player_2' : { 'user' : p1_user, 'name' : p1_name } })
+
+            temp = { 'idle' : idles, 'playing' : playing }
+
+            out = json.dumps(temp)
 
         self.wfile.write(out.encode('utf8'))
 
