@@ -40,7 +40,25 @@ http_port = 7623
 # match history
 match_history_size = 25
 
+logfile = 'waxx.log'
+
 ###
+
+def flog(what):
+    if not logfile:
+        return
+
+    try:
+        ts = time.asctime()
+
+        print(ts, what)
+
+        fh = open(logfile, 'a')
+        fh.write('%s %s\n' % (ts, what))
+        fh.close()
+
+    except Exception as e:
+        print('Logfile failure %s' % e)
 
 try:
     conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
@@ -50,7 +68,7 @@ try:
     conn.commit()
     conn.close()
 except Exception as e:
-    print('db create:', e)
+    flog('db create: %s' % e)
     pass
 
 temp = open(book, 'r').readlines()
@@ -66,7 +84,7 @@ def play_game(p1_in, p2_in, t, time_buffer):
     p2 = p2_in[0]
     p2_user = p2_in[1]
 
-    print('Starting game between %s(%s) and %s(%s)' % (p1.name, p1_user, p2.name, p2_user))
+    flog('Starting game between %s(%s) and %s(%s)' % (p1.name, p1_user, p2.name, p2_user))
 
     pos = random.choice(book_lines)
 
@@ -108,10 +126,11 @@ def play_game(p1_in, p2_in, t, time_buffer):
             took = time.time() - start
             t2 += took
 
-        if took >= t + time_buffer and reason == None:
+        t_left = t + time_buffer - took * 1000
+        if t_left < 0 and reason == None:
             who = p1.name if board.turn == ataxx.BLACK else p2.name
-            print('%s used %d seconds' % (who, took))
-            #reason = '%s used %d seconds' % (who, took)
+            reason = '%s used too much time' % who
+            flog('%s used %fms too much time' % (who, -t_left))
             #break
 
 
@@ -149,7 +168,7 @@ def play_game(p1_in, p2_in, t, time_buffer):
     if reason:
         game.set_adjudicated(reason)
 
-    print('%s(%s) versus %s(%s): %s (%s)' % (p1.name, p1_user, p2.name, p2_user, board.result(), reason))
+    flog('%s(%s) versus %s(%s): %s (%s)' % (p1.name, p1_user, p2.name, p2_user, board.result(), reason))
 
     with lock:
         try:
@@ -241,7 +260,7 @@ def play_game(p1_in, p2_in, t, time_buffer):
                 del p2_in
 
         except Exception as e:
-            print('failure: %s' % e)
+            flog('failure: %s' % e)
             traceback.print_exc(file=sys.stdout)
 
     return board.result()
@@ -264,14 +283,14 @@ def select_client(idle_clients):
     conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
     c = conn.cursor()
 
-    c.execute('SELECT MAX(w+d+l) AS count FROM players')
+    c.execute('SELECT MAX(rating) AS count FROM players')
     max_ = c.fetchone()[0]
 
     for client in idle_clients:
-        c.execute('SELECT w+d+l AS count FROM players WHERE user=%s', (client[1],))
+        c.execute('SELECT rating AS count FROM players WHERE user=%s', (client[1],))
         row = c.fetchone()
 
-        pairs.append((max_ - row[0], client))
+        pairs.append((round(max_ - row[0]), client))
 
     conn.close()
 
@@ -283,7 +302,7 @@ def match_scheduler():
             n_idle = len(idle_clients)
             n_play = len(playing_clients)
 
-            print('idle: %d, playing: %d' % (n_idle, n_play * 2), end='\r')
+            flog('idle: %d, playing: %d' % (n_idle, n_play * 2))
 
             for loop in range(0, n_idle // 2):
                 i1 = i2 = 0
@@ -298,7 +317,7 @@ def match_scheduler():
                         break
 
                 if i1 == i2:
-                    print('Cannot find a pair')
+                    flog('Cannot find a pair')
                     break
 
                 pair = '%s | %s' % (i1[1], i2[1])
@@ -359,7 +378,7 @@ def add_client(sck, addr):
         e.uai()
         e.isready()
 
-        print('Connected with %s (%s) running %s (by %s)' % (addr, user, e.name, e.author))
+        flog('Connected with %s (%s) running %s (by %s)' % (addr, user, e.name, e.author))
 
         conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
         c = conn.cursor()
@@ -370,14 +389,14 @@ def add_client(sck, addr):
         with lock:
             for clnt in idle_clients:
                 if clnt[1] == user:
-                    print('Removing duplicate user %s' % user)
+                    flog('Removing duplicate user %s' % user)
                     idle_clients.remove(clnt)
                     clnt[0].quit()
 
             idle_clients.append((e, user))
 
     except Exception as e:
-        print('Fail: %s' % e)
+        flog('Fail: %s' % e)
         sck.close()
         traceback.print_exc(file=sys.stdout)
 
@@ -429,7 +448,7 @@ def run_httpd(server_class=ThreadingHTTPServer, handler_class=http_server, addr=
     server_address = (addr, port)
     httpd = server_class(server_address, handler_class)
 
-    print(f"Starting httpd server on {addr}:{port}")
+    flog(f"Starting httpd server on {addr}:{port}")
     httpd.serve_forever()
 
 idle_clients = []
@@ -452,7 +471,7 @@ while True:
 
     # wait for a new client on a socket
     cs, addr = ss.accept()
-    print(cs, addr)
+    flog('tcp connection with %s %s ' % (cs, addr))
 
     t = threading.Thread(target=add_client, args=(cs,addr,))
     t.start()
