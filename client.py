@@ -1,6 +1,5 @@
 #! /usr/bin/python3
 
-import fcntl
 import getopt
 import os
 import select
@@ -8,6 +7,7 @@ import socket
 import subprocess
 import sys
 import time
+import threading
 import traceback
 
 def usage():
@@ -50,11 +50,60 @@ if user == None or password == None:
     usage()
     sys.exit(1)
 
+def engine_thread(sck, eng):
+    try:
+        while True:
+            dat = eng.stdout.readline()
+            if dat == None:
+                break
+
+            dat = dat.replace(b'\n', b'\r\n')
+            print(time.asctime(), 'engine: ', dat)
+
+            rc = sck.send(dat)
+            print('engine rc: ', rc)
+            if rc == 0:
+                break
+
+    finally:
+        print('Terminating engine_thread: close process')
+
+        eng.terminate()
+
+        print('Terminating engine_thread: close socket')
+
+        sck.close()
+
+        print('Engine_thread terminated')
+
+def socket_thread(eng, sck):
+    try:
+        while True:
+            dat = sck.recv(4096)
+            if dat == None:
+                break
+
+            print(time.asctime(), 'socket: %s' % dat.decode())
+            rc = eng.stdin.write(dat)
+            print('socket rc: ', rc)
+            if rc == 0:
+                break
+
+            eng.stdin.flush()
+
+    finally:
+        print('Terminating socket_thread: close socket')
+        sck.close()
+
+        print('Terminating socket_thread: close process')
+        eng.terminate()
+
+        print('Socket_thread terminated')
+
 while True:
     try:
-        p = subprocess.Popen(engine, stdin=subprocess.PIPE, stdout=subprocess.PIPE, universal_newlines=True)
-        fl = fcntl.fcntl(p.stdout, fcntl.F_GETFL)
-        fcntl.fcntl(p.stdout, fcntl.F_SETFL, fl | os.O_NONBLOCK)
+        print('Start process')
+        p = subprocess.Popen(engine, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.connect((host, port))
@@ -62,44 +111,17 @@ while True:
         s.send(bytes('user %s\n' % user, encoding='utf8'))
         s.send(bytes('pass %s\n' % password, encoding='utf8'))
 
-        poller = select.poll()
-        poller.register(s.fileno(), select.POLLIN)
-        poller.register(p.stdout.fileno(), select.POLLIN)
+        t1 = threading.Thread(target=socket_thread, args=(p, s, ))
+        t1.start()
 
-        terminate = False
+        t2 = threading.Thread(target=engine_thread, args=(s, p, ))
+        t2.start()
 
-        while not terminate:
-            events = poller.poll(-1)
-            if events == None:
-                print('Poller returned error?')
-                break
+        t2.join()
+        print('Back from engine_thread join')
 
-            for fd, flag in events:
-                if fd == s.fileno():
-                    dat = s.recv(4096)
-                    if dat == None:
-                        terminate = True
-                    else:
-                        print(time.asctime(), 'server: %s' % dat.decode())
-                        if p.stdin.write(dat.decode()) == 0:
-                            terminate = True
-                        p.stdin.flush()
-
-                elif fd == p.stdout.fileno():
-                    dat = p.stdout.read()
-                    if dat == None:
-                        terminate = True
-                    else:
-                        print(time.asctime(), 'engine: ', dat)
-                        if s.send(dat.encode('utf-8')) == 0:
-                            terminate = True
-
-                else:
-                    print('Unexpected error ', fd, flag)
-                    break
-
-        if terminate:
-            time.sleep(2.5)
+        t1.join()
+        print('Back from socket_thread join')
 
     except ConnectionRefusedError as e:
         print('failure: %s' % e)
@@ -111,10 +133,12 @@ while True:
         break
 
     finally:
+        print('Close socket')
         s.close()
         del s
 
+        print('Terminate process')
         p.stdout.close()
-        p.terminate()
+        p.stdin.close()
         p.wait()
         del p
