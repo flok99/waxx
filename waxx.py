@@ -135,7 +135,7 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
             flog('%s used %fms too much time' % (who, -t_left))
 
             if t + time_buffer_hard - took * 1000 < 0:
-                flog('%s went over the hard limit')
+                flog('%s went over the hard limit' % who)
                 break
 
         if bestmove == None:
@@ -145,6 +145,7 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
         n_ply += 1
 
+        flog('%s => %s' % (board.get_fen(), bestmove))
         move = ataxx.Move.from_san(bestmove)
 
         if board.is_legal(move) == False:
@@ -154,9 +155,6 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
         board.makemove(move)
 
-        if board.gameover():
-            break
-        
         if board.fifty_move_draw():
             reason = 'fifty moves'
             break
