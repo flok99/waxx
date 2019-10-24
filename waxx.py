@@ -480,14 +480,12 @@ class http_server(BaseHTTPRequestHandler):
                     p1_name = p1.name
                     p1_user = clnt1[1]
 
-                    playing.append({ 'player_1' : { 'user' : p1_user, 'name' : p1_name } })
-
                     clnt2 = couple[1]
                     p2 = clnt2[0]
                     p2_name = p2.name
                     p2_user = clnt2[1]
 
-                    playing.append({ 'player_2' : { 'user' : p1_user, 'name' : p1_name } })
+                    playing.append({ 'player_1' : { 'user' : p1_user, 'name' : p1_name }, 'player_2' : { 'user' : p2_user, 'name' : p2_name } })
 
             temp = { 'idle' : idles, 'playing' : playing }
 
