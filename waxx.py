@@ -329,6 +329,10 @@ def match_scheduler():
 
                 pair = '%s | %s' % (i1[1], i2[1])
 
+                if pair in before:
+                    i1, i2 = i2, i1
+                    pair = '%s | %s' % (i1[1], i2[1])
+
                 if not pair in before or n_play == 0:
                     idle_clients.remove(i1)
                     idle_clients.remove(i2)
