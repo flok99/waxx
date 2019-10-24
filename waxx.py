@@ -81,99 +81,100 @@ lock = threading.Lock()
 def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
     global book_lines
 
-    p1 = p1_in[0]
-    p1_user = p1_in[1]
-    p2 = p2_in[0]
-    p2_user = p2_in[1]
-
-    flog('Starting game between %s(%s) and %s(%s)' % (p1.name, p1_user, p2.name, p2_user))
-
-    pos = random.choice(book_lines)
-
-    board = ataxx.Board(pos)
-
-    reason = None
-
     fail2 = fail1 = False
 
-    t1 = t2 = 0
+    try:
+        p1 = p1_in[0]
+        p1_user = p1_in[1]
+        p2 = p2_in[0]
+        p2_user = p2_in[1]
 
-    n_ply = 0
+        flog('Starting game between %s(%s) and %s(%s)' % (p1.name, p1_user, p2.name, p2_user))
 
-    while not board.gameover():
-        start = time.time()
-        took = None
+        pos = random.choice(book_lines)
 
-        if board.turn == ataxx.BLACK:
-            p1.position(board.get_fen())
-            bestmove, ponder = p1.go(movetime=t)
+        board = ataxx.Board(pos)
 
-            if bestmove == None:
-                fail1 = True
-                reason = '%s disconnected' % p1.name
-                p1.quit()
+        reason = None
 
-            took = time.time() - start
-            t1 += took
+        t1 = t2 = 0
 
-        else:
-            p2.position(board.get_fen())
-            bestmove, ponder = p2.go(movetime=t)
+        n_ply = 0
 
-            if bestmove == None:
-                fail2 = True
-                reason = '%s disconnected' % p2.name
-                p2.quit()
+        while not board.gameover():
+            start = time.time()
+            took = None
 
-            took = time.time() - start
-            t2 += took
-
-        t_left = t + time_buffer_soft - took * 1000
-        if t_left < 0 and reason == None:
             who = p1.name if board.turn == ataxx.BLACK else p2.name
-            reason = '%s used too much time' % who
-            flog('%s used %fms too much time' % (who, -t_left))
 
-            if t + time_buffer_hard - took * 1000 < 0:
-                flog('%s went over the hard limit' % who)
+            if board.turn == ataxx.BLACK:
+                p1.position(board.get_fen())
+                bestmove, ponder = p1.go(movetime=t)
+
+                if bestmove == None:
+                    fail1 = True
+                    reason = '%s disconnected' % p1.name
+                    p1.quit()
+
+                took = time.time() - start
+                t1 += took
+
+            else:
+                p2.position(board.get_fen())
+                bestmove, ponder = p2.go(movetime=t)
+
+                if bestmove == None:
+                    fail2 = True
+                    reason = '%s disconnected' % p2.name
+                    p2.quit()
+
+                took = time.time() - start
+                t2 += took
+
+            t_left = t + time_buffer_soft - took * 1000
+            if t_left < 0 and reason == None:
+                reason = '%s used too much time' % who
+                flog('%s used %fms too much time' % (who, -t_left))
+
+                if t + time_buffer_hard - took * 1000 < 0:
+                    flog('%s went over the hard limit' % who)
+                    break
+
+            if bestmove == None:
+                if reason == None:
+                    reason = 'One/two clients disconnected'
                 break
 
-        if bestmove == None:
-            if reason == None:
-                reason = 'One/two clients disconnected'
-            break
+            n_ply += 1
 
-        n_ply += 1
+            flog('%s) %s => %s' % (who, board.get_fen(), bestmove))
+            move = ataxx.Move.from_san(bestmove)
 
-        flog('%s => %s' % (board.get_fen(), bestmove))
-        move = ataxx.Move.from_san(bestmove)
+            if board.is_legal(move) == False:
+                who = p1.name if board.turn == ataxx.BLACK else p2.name
+                reason = 'Illegal move by %s: %s' % (who, bestmove)
+                break
 
-        if board.is_legal(move) == False:
-            who = p1.name if board.turn == ataxx.BLACK else p2.name
-            reason = 'Illegal move by %s: %s' % (who, bestmove)
-            break
+            board.makemove(move)
 
-        board.makemove(move)
+            if board.fifty_move_draw():
+                reason = 'fifty moves'
+                break
 
-        if board.fifty_move_draw():
-            reason = 'fifty moves'
-            break
+            if board.max_length_draw():
+                reason = 'max length'
+                break
 
-        if board.max_length_draw():
-            reason = 'max length'
-            break
+        game = ataxx.pgn.Game()
+        game.from_board(board)
+        game.set_white(p1_user)
+        game.set_black(p2_user)
+        if reason:
+            game.set_adjudicated(reason)
 
-    game = ataxx.pgn.Game()
-    game.from_board(board)
-    game.set_white(p1_user)
-    game.set_black(p2_user)
-    if reason:
-        game.set_adjudicated(reason)
+        flog('%s(%s) versus %s(%s): %s (%s)' % (p1.name, p1_user, p2.name, p2_user, board.result(), reason))
 
-    flog('%s(%s) versus %s(%s): %s (%s)' % (p1.name, p1_user, p2.name, p2_user, board.result(), reason))
-
-    with lock:
-        try:
+        with lock:
             # update internal structures representing who is playing or not
             playing_clients.remove((p1_in, p2_in))
 
@@ -256,17 +257,21 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
                 del i
 
-            if fail1:
-                del p1_in
+    except Exception as e:
+        flog('failure: %s' % e)
+        fh = open(logfile, 'a')
+        traceback.print_exc(file=fh)
+        fh.close()
 
-            if fail2:
-                del p2_in
+        fail1 = fail2 = True
 
-        except Exception as e:
-            flog('failure: %s' % e)
-            traceback.print_exc(file=sys.stdout)
+    if fail1:
+        p1_in.quit()
+        del p1_in
 
-    return board.result()
+    if fail2:
+        p2_in.quit()
+        del p2_in
 
 # https://stackoverflow.com/questions/14992521/python-weighted-random
 def weighted_random(pairs):
