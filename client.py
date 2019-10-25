@@ -67,11 +67,9 @@ def engine_thread(sck, eng):
 
     finally:
         print('Terminating engine_thread: close process')
-
-        eng.terminate()
+        eng.kill()
 
         print('Terminating engine_thread: close socket')
-
         sck.close()
 
         print('Engine_thread terminated')
@@ -96,7 +94,7 @@ def socket_thread(eng, sck):
         sck.close()
 
         print('Terminating socket_thread: close process')
-        eng.terminate()
+        eng.kill()
 
         print('Socket_thread terminated')
 
@@ -140,5 +138,6 @@ while True:
         print('Terminate process')
         p.stdout.close()
         p.stdin.close()
+        p.kill()
         p.wait()
         del p
