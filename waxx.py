@@ -169,6 +169,11 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
             if board.is_legal(move) == False:
                 who = p1.name if board.turn == ataxx.BLACK else p2.name
                 reason = 'Illegal move by %s: %s' % (who, bestmove)
+
+                if board.turn == ataxx.BLACK:
+                    fail1 = True
+                else:
+                    fail2 = True
                 break
 
             board.makemove(move)
