@@ -65,15 +65,9 @@ def engine_thread(sck, eng):
             if rc == 0:
                 break
 
-    finally:
-        print('Terminating engine_thread: close process')
-        eng.kill()
+    except Exception as e:
+        print('Engine_thread terminating', e)
 
-        print('Terminating engine_thread: close socket')
-        sck.shutdown(socket.SHUT_RDWR)
-        sck.close()
-
-        print('Engine_thread terminated')
 
 def socket_thread(eng, sck):
     try:
@@ -90,16 +84,8 @@ def socket_thread(eng, sck):
 
             eng.stdin.flush()
 
-    finally:
-        print('Terminating socket_thread: close socket')
-        sck.shutdown(socket.SHUT_RDWR)
-        sck.close()
-
-        print('Terminating socket_thread: close process')
-        eng.kill()
-        p.stdout.close()
-
-        print('Socket_thread terminated')
+    except Exception as e:
+        print('Socket_thread terminating', e)
 
 while True:
     try:
@@ -119,11 +105,18 @@ while True:
         t2 = threading.Thread(target=engine_thread, args=(s, p, ))
         t2.start()
 
-        t2.join()
-        print('Back from engine_thread join')
+        while t1 and t2:
+            if t1:
+                t1.join(0.1)
+                if not t1.isAlive():
+                    t1 = None
+                    print('Back from socket_thread join')
 
-        t1.join()
-        print('Back from socket_thread join')
+            if t2:
+                t2.join(0.1)
+                if not t2.isAlive():
+                    t2 = None
+                    print('Back from engine_thread join')
 
     except ConnectionRefusedError as e:
         print('failure: %s' % e)
@@ -132,17 +125,23 @@ while True:
     except Exception as e:
         print('failure: %s' % e)
         traceback.print_exc(file=sys.stdout)
-        break
 
     finally:
         print('Close socket')
-        s.shutdown(socket.SHUT_RDWR)
-        s.close()
+        try:
+            s.shutdown(socket.SHUT_RDWR)
+        except Exception as e:
+            print('failure: %s' % e)
+        finally:
+            s.close()
         del s
 
         print('Terminate process')
-        p.stdout.close()
-        p.stdin.close()
-        p.kill()
-        p.wait()
+        try:
+            p.kill()
+            p.wait()
+        except Exception as e:
+            print('failure: %s' % e)
         del p
+
+        print('Socket closed, process terminated')
