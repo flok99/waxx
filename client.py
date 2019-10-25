@@ -95,6 +95,7 @@ def socket_thread(eng, sck):
 
         print('Terminating socket_thread: close process')
         eng.kill()
+        p.stdout.close()
 
         print('Socket_thread terminated')
 
