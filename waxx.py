@@ -287,11 +287,11 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
         fail1 = fail2 = True
 
     if fail1:
-        p1_in.quit()
+        p1_in[0].quit()
         del p1_in
 
     if fail2:
-        p2_in.quit()
+        p2_in[0].quit()
         del p2_in
 
 # https://stackoverflow.com/questions/14992521/python-weighted-random
