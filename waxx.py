@@ -563,5 +563,7 @@ while True:
     cs, addr = ss.accept()
     flog('tcp connection with %s %s ' % (cs, addr))
 
+    cs.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
     t = threading.Thread(target=add_client, args=(cs,addr,))
     t.start()
