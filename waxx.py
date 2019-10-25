@@ -91,6 +91,9 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
         flog('Starting game between %s(%s) and %s(%s)' % (p1.name, p1_user, p2.name, p2_user))
 
+        p1.uainewgame()
+        p2.uainewgame()
+
         pos = random.choice(book_lines)
 
         board = ataxx.Board(pos)
