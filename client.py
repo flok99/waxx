@@ -70,6 +70,7 @@ def engine_thread(sck, eng):
         eng.kill()
 
         print('Terminating engine_thread: close socket')
+        sck.shutdown(socket.SHUT_RDWR)
         sck.close()
 
         print('Engine_thread terminated')
@@ -91,6 +92,7 @@ def socket_thread(eng, sck):
 
     finally:
         print('Terminating socket_thread: close socket')
+        sck.shutdown(socket.SHUT_RDWR)
         sck.close()
 
         print('Terminating socket_thread: close process')
@@ -134,6 +136,7 @@ while True:
 
     finally:
         print('Close socket')
+        s.shutdown(socket.SHUT_RDWR)
         s.close()
         del s
 
