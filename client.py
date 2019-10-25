@@ -104,6 +104,7 @@ while True:
         p = subprocess.Popen(engine, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         s.connect((host, port))
 
         s.send(bytes('user %s\n' % user, encoding='utf8'))
