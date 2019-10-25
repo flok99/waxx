@@ -140,5 +140,6 @@ while True:
         print('Terminate process')
         p.stdout.close()
         p.stdin.close()
+        p.kill()
         p.wait()
         del p
