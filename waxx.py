@@ -444,11 +444,6 @@ def add_client(sck, addr):
         sck.close()
         traceback.print_exc(file=sys.stdout)
 
-def my_asc_time(t):
-    obj = time.localtime(t) 
-
-    return time.asctime(obj)
-
 class http_server(BaseHTTPRequestHandler):
     def _set_headers(self):
         self.send_response(200)
@@ -502,7 +497,7 @@ class http_server(BaseHTTPRequestHandler):
                     p1_name = p1.name
                     p1_user = clnt[1]
 
-                    la = my_asc_time(last_activity[p1_name] if p1_name in last_activity else 0)
+                    la = last_activity[p1_name] if p1_name in last_activity else 0
                     idles.append({ 'user' : p1_user, 'name' : p1_name, 'last_activity' : la })
 
             playing = []
@@ -514,14 +509,14 @@ class http_server(BaseHTTPRequestHandler):
                     p1_name = p1.name
                     p1_user = clnt1[1]
 
-                    la1 = my_asc_time(last_activity[p1_name] if p1_name in last_activity else 0)
+                    la1 = last_activity[p1_name] if p1_name in last_activity else 0
 
                     clnt2 = couple[1]
                     p2 = clnt2[0]
                     p2_name = p2.name
                     p2_user = clnt2[1]
 
-                    la2 = my_asc_time(last_activity[p2_name] if p2_name in last_activity else 0)
+                    la2 = last_activity[p2_name] if p2_name in last_activity else 0
 
                     playing.append({ 'player_1' : { 'user' : p1_user, 'name' : p1_name, 'last_activity' : la1 }, 'player_2' : { 'user' : p2_user, 'name' : p2_name, 'last_activity' : la2 } })
 
