@@ -77,6 +77,7 @@ temp = open(book, 'r').readlines()
 book_lines = [line.rstrip('\n') for line in temp]
 
 lock = threading.Lock()
+last_activity = {}
 
 def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
     global book_lines
@@ -92,7 +93,9 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
         flog('Starting game between %s(%s) and %s(%s)' % (p1.name, p1_user, p2.name, p2_user))
 
         p1.uainewgame()
+        p1.setoption('UCI_Opponent', 'none none computer %s' % p2.name)
         p2.uainewgame()
+        p2.setoption('UCI_Opponent', 'none none computer %s' % p1.name)
 
         pos = random.choice(book_lines)
 
@@ -110,29 +113,39 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
             who = p1.name if board.turn == ataxx.BLACK else p2.name
 
+            maxwait = (t + time_buffer_hard) / 1000.0
+
             if board.turn == ataxx.BLACK:
                 p1.position(board.get_fen())
-                bestmove, ponder = p1.go(movetime=t)
+                bestmove, ponder = p1.go(movetime=t, maxwait=maxwait)
 
                 if bestmove == None:
                     fail1 = True
                     reason = '%s disconnected' % p1.name
                     p1.quit()
 
-                took = time.time() - start
+                now = time.time()
+                took = now - start
                 t1 += took
+
+                with lock:
+                    last_activity[p1.name] = now
 
             else:
                 p2.position(board.get_fen())
-                bestmove, ponder = p2.go(movetime=t)
+                bestmove, ponder = p2.go(movetime=t, maxwait=maxwait)
 
                 if bestmove == None:
                     fail2 = True
                     reason = '%s disconnected' % p2.name
                     p2.quit()
 
-                took = time.time() - start
+                now = time.time()
+                took = now - start
                 t2 += took
+
+                with lock:
+                    last_activity[p2.name] = now
 
             t_left = t + time_buffer_soft - took * 1000
             if t_left < 0 and reason == None:
@@ -426,6 +439,11 @@ def add_client(sck, addr):
         sck.close()
         traceback.print_exc(file=sys.stdout)
 
+def my_asc_time(t):
+    obj = time.localtime(t) 
+
+    return time.asctime(obj)
+
 class http_server(BaseHTTPRequestHandler):
     def _set_headers(self):
         self.send_response(200)
@@ -479,7 +497,8 @@ class http_server(BaseHTTPRequestHandler):
                     p1_name = p1.name
                     p1_user = clnt[1]
 
-                    idles.append({ 'user' : p1_user, 'name' : p1_name })
+                    la = my_asc_time(last_activity[p1_name] if p1_name in last_activity else 0)
+                    idles.append({ 'user' : p1_user, 'name' : p1_name, 'last_activity' : la })
 
             playing = []
 
@@ -490,12 +509,16 @@ class http_server(BaseHTTPRequestHandler):
                     p1_name = p1.name
                     p1_user = clnt1[1]
 
+                    la1 = my_asc_time(last_activity[p1_name] if p1_name in last_activity else 0)
+
                     clnt2 = couple[1]
                     p2 = clnt2[0]
                     p2_name = p2.name
                     p2_user = clnt2[1]
 
-                    playing.append({ 'player_1' : { 'user' : p1_user, 'name' : p1_name }, 'player_2' : { 'user' : p2_user, 'name' : p2_name } })
+                    la2 = my_asc_time(last_activity[p2_name] if p2_name in last_activity else 0)
+
+                    playing.append({ 'player_1' : { 'user' : p1_user, 'name' : p1_name, 'last_activity' : la1 }, 'player_2' : { 'user' : p2_user, 'name' : p2_name, 'last_activity' : la2 } })
 
             temp = { 'idle' : idles, 'playing' : playing }
 
