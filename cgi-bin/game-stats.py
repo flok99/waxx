@@ -60,6 +60,8 @@ ax2.plot(x_data, y_data_score, 'r')
 ax2.set_ylabel('score', color='r')
 ax2.tick_params('y', colors='r')
 
+ax2.spines['right'].set_position(('outward', 45)) 
+
 ax3 = ax.twinx()
 ax3.plot(x_data, y_data_n_games, 'g')
 ax3.set_ylabel('games', color='g')
@@ -68,5 +70,6 @@ ax3.tick_params('y', colors='g')
 ax.plot(x_data, y_data_took)
 
 buffer_ = io.BytesIO()
+plt.tight_layout()
 plt.savefig(buffer_, format='svg')
 print(buffer_.getvalue().decode('utf-8'))
