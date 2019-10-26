@@ -115,9 +115,15 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
             maxwait = (t + time_buffer_hard) / 1000.0
 
+            bestmove = ponder = None
+
             if board.turn == ataxx.BLACK:
                 p1.position(board.get_fen())
-                bestmove, ponder = p1.go(movetime=t, maxwait=maxwait)
+
+                try:
+                    bestmove, ponder = p1.go(movetime=t, maxwait=maxwait)
+                except Exception as e:
+                    flog('p1.go threw %s', e)
 
                 if bestmove == None:
                     fail1 = True
@@ -133,7 +139,11 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
             else:
                 p2.position(board.get_fen())
-                bestmove, ponder = p2.go(movetime=t, maxwait=maxwait)
+
+                try:
+                    bestmove, ponder = p2.go(movetime=t, maxwait=maxwait)
+                except Exception as e:
+                    flog('p2.go threw %s', e)
 
                 if bestmove == None:
                     fail2 = True
@@ -163,7 +173,7 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
             n_ply += 1
 
-            flog('%s) %s => %s' % (who, board.get_fen(), bestmove))
+            flog('%s) %s => %s (%f)' % (who, board.get_fen(), bestmove, took))
             move = ataxx.Move.from_san(bestmove)
 
             if board.is_legal(move) == False:
@@ -286,13 +296,19 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
         fail1 = fail2 = True
 
-    if fail1:
-        p1_in[0].quit()
-        del p1_in
+    try:
+        if fail1:
+            p1_in[0].quit()
+            del p1_in
+    except:
+        pass
 
-    if fail2:
-        p2_in[0].quit()
-        del p2_in
+    try:
+        if fail2:
+            p2_in[0].quit()
+            del p2_in
+    except:
+        pass
 
 # https://stackoverflow.com/questions/14992521/python-weighted-random
 def weighted_random(pairs):
