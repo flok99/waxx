@@ -103,9 +103,9 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
         reason = None
 
-        t1 = t2 = 0
+        n_ply = t1 = t2 = 0
 
-        n_ply = 0
+        moves = []
 
         while not board.gameover():
             start = time.time()
@@ -116,6 +116,11 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
             maxwait = (t + time_buffer_hard) / 1000.0
 
             bestmove = ponder = None
+
+            m = {}
+            m['move_nr'] = board.fullmove_clock
+            m['fen'] = board.get_fen()
+            m['is_p1'] = 1 if board.turn == ataxx.BLACK else 0
 
             if board.turn == ataxx.BLACK:
                 p1.position(board.get_fen())
@@ -171,6 +176,10 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
                     reason = 'One/two clients disconnected'
                 break
 
+            else:
+                m['move'] = bestmove
+                m['took'] = took
+
             n_ply += 1
 
             flog('%s) %s => %s (%f)' % (who, board.get_fen(), bestmove, took))
@@ -184,9 +193,16 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
                     fail1 = True
                 else:
                     fail2 = True
+
+                m['score'] = -9999
+                moves.append(m)
                 break
 
             board.makemove(move)
+
+            m['score'] = board.score()
+
+            moves.append(m)
 
             if board.fifty_move_draw():
                 reason = 'fifty moves'
@@ -222,9 +238,6 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
             else:
                 idle_clients.append(p2_in)
 
-            conn.commit()
-            conn.close()
-
             # update pgn file
             if pgn_file:
                 fh = open(pgn_file, 'a')
@@ -239,17 +252,19 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
             adjudication = reason if reason != None else ''
 
-            conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
             c = conn.cursor()
             c.execute("INSERT INTO results(ts, p1, e1, t1, p2, e2, t2, result, adjudication, plies, tpm, pgn, md5) VALUES(NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", (p1_user, p1.name, t1, p2_user, p2.name, t2, board.result(), adjudication, n_ply, t, pgn, hash_))
-            conn.commit()
-            conn.close()
+            id_ = c.lastrowid
+
+            c = conn.cursor()
+
+            for m in moves:
+                c.execute('INSERT INTO moves(results_id, move_nr, fen, move, took, score, is_p1) VALUES(%s, %s, %s, %s, %s, %s, %s)', (id_, m['move_nr'], m['fen'], m['move'], m['took'], m['score'], m['is_p1']))
 
             # update rating of the user
             if not fail1 and not fail2:
                 i = elopy.Implementation()
 
-                conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
                 c = conn.cursor()
 
                 # get
@@ -283,10 +298,10 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
                     c.execute("UPDATE players SET d=d+1 WHERE user=%s", (p1_user,))
                     c.execute("UPDATE players SET d=d+1 WHERE user=%s", (p2_user,))
 
-                conn.commit()
-                conn.close()
-
                 del i
+
+            conn.commit()
+            conn.close()
 
     except Exception as e:
         flog('failure: %s' % e)
