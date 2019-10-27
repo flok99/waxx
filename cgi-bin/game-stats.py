@@ -23,7 +23,10 @@ user = form.getvalue('user')
 conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
 c = conn.cursor()
 
-c.execute('select move_nr, avg(took) as avg_took, avg(score) as avg_score, count(*) as n_games from moves group by move_nr')
+if user and user != '':
+    c.execute('select move_nr, avg(took) as avg_took, avg(score) as avg_score, count(*) as n_games from moves, results where results_id=id and (p1=%s or p2=%s) group by move_nr', (user, user,))
+else:
+    c.execute('select move_nr, avg(took) as avg_took, avg(score) as avg_score, count(*) as n_games from moves group by move_nr')
 
 x_data = []
 y_data_took = []
