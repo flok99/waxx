@@ -16,12 +16,15 @@ md5 = form.getvalue('md5')
 
 conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
 c = conn.cursor()
-c.execute('SELECT pgn FROM results WHERE md5=%s', (md5,))
+c.execute('SELECT pgn, p1, p2 FROM results WHERE md5=%s', (md5,))
 row = c.fetchone()
 conn.commit()
 conn.close()
 
 print('Content-Type: text/plain\r\n\r')
+
+print('player1 %s' % row[1])
+print('player2 %s' % row[2])
 
 for game in ataxx.pgn.GameIterator(row[0], is_string=True):
     if 'FEN' in game.headers:
