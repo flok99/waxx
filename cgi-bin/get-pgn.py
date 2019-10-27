@@ -32,9 +32,10 @@ for game in ataxx.pgn.GameIterator(row[0], is_string=True):
     else:
         b = ataxx.Board()
 
-    for node in game.main_line():
-        print('%s %s' % (node.move, b.get_fen()))
-        b.makemove(node.move)
+    print('START %s' % b.get_fen())
 
-    print('END %s' % (node.move, b.get_fen()))
+    for node in game.main_line():
+        b.makemove(node.move)
+        print('%s %s' % (node.move, b.get_fen()))
+
     break
