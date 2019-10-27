@@ -1,5 +1,6 @@
 #! /usr/bin/python3
 
+import asyncio
 import hashlib
 import json
 import mysql.connector
@@ -11,6 +12,7 @@ import sys
 import threading
 import time
 import traceback
+import websockets
 
 from http.server import ThreadingHTTPServer, HTTPServer, BaseHTTPRequestHandler
 
@@ -38,6 +40,8 @@ db_db = 'waxx'
 
 # http server
 http_port = 7623
+ws_port = 7624
+ws_interface = '127.0.0.1'
 
 # match history
 match_history_size = 25
@@ -45,6 +49,39 @@ match_history_size = 25
 logfile = 'waxx.log'
 
 ###
+
+ws_data = {}
+ws_data_lock = threading.Lock()
+
+async def ws_serve(websocket, path):
+    try:
+        flog('Websocket started')
+
+        listen_pair = await websocket.recv()
+        flog('Websocket is listening for %s' % listen_pair)
+
+        p_fen = None
+
+        while True:
+            send = None
+
+            with ws_data_lock:
+                if p_fen == None or ws_data[listen_pair] != p_fen:
+                    send = p_fen = ws_data[listen_pair]
+
+            if send:
+                await websocket.send('fen %s' % send)
+
+            await asyncio.sleep(0.25)
+
+    except Exception as e:
+        flog('ws_serve: %s' % e)
+
+def run_websockets_server():
+    start_server = websockets.serve(ws_serve, ws_interface, ws_port)
+
+    asyncio.get_event_loop().run_until_complete(start_server)
+    asyncio.get_event_loop().run_forever()
 
 def flog(what):
     if not logfile:
@@ -65,8 +102,9 @@ def flog(what):
 try:
     conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
     c = conn.cursor()
-    c.execute('CREATE TABLE results(ts datetime, p1 varchar(64), e1 varchar(128), t1 double, p2 varchar(64), e2 varchar(128), t2 double, result varchar(7), adjudication varchar(128), plies int, tpm int, pgn text, md5 char(32))')
-    c.execute('CREATE TABLE players(user varchar(64), password varchar(64), rating double default 1000, w int(8) default 0, d int(8) default 0, l int(8) default 0, failure_count int(8) default 0, primary key(user))')
+    c.execute('CREATE TABLE results(id INT(12) NOT NULL AUTO_INCREMENT, ts datetime, p1 varchar(64), e1 varchar(128), t1 double, p2 varchar(64), e2 varchar(128), t2 double, result varchar(7), adjudication varchar(128), plies int, tpm int, pgn text, md5 char(32), primary key(id))')
+    c.execute('CREATE TABLE players(user varchar(64), password varchar(64), author varchar(128), engine varchar(128), rating double default 1000, w int(8) default 0, d int(8) default 0, l int(8) default 0, failure_count int(8) default 0, primary key(user))')
+    c.execute('create table moves(results_id int not null, move_nr int(4), fen varchar(128), move varchar(5), took double, score int, is_p1 int(1), foreign key(results_id) references results(id) )')
     conn.commit()
     conn.close()
 except Exception as e:
@@ -91,6 +129,8 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
         p2_user = p2_in[1]
 
         flog('Starting game between %s(%s) and %s(%s)' % (p1.name, p1_user, p2.name, p2_user))
+
+        pair = '%s|%s' % (p1_user, p2_user)
 
         p1.uainewgame()
         p1.setoption('UCI_Opponent', 'none none computer %s' % p2.name)
@@ -119,7 +159,8 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
             m = {}
             m['move_nr'] = board.fullmove_clock
-            m['fen'] = board.get_fen()
+            with ws_data_lock:
+                ws_data[pair] = m['fen'] = board.get_fen()
             m['is_p1'] = 1 if board.turn == ataxx.BLACK else 0
 
             if board.turn == ataxx.BLACK:
@@ -128,7 +169,7 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
                 try:
                     bestmove, ponder = p1.go(movetime=t, maxwait=maxwait)
                 except Exception as e:
-                    flog('p1.go threw %s', e)
+                    flog('p1.go threw %s' % e)
 
                 if bestmove == None:
                     fail1 = True
@@ -148,7 +189,7 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
                 try:
                     bestmove, ponder = p2.go(movetime=t, maxwait=maxwait)
                 except Exception as e:
-                    flog('p2.go threw %s', e)
+                    flog('p2.go threw %s' % e)
 
                 if bestmove == None:
                     fail2 = True
@@ -201,6 +242,9 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
             board.makemove(move)
 
             m['score'] = board.score()
+
+            with ws_data_lock:
+                ws_data[pair] = board.get_fen()
 
             moves.append(m)
 
@@ -371,7 +415,11 @@ def match_scheduler():
 
                 attempt = 0
                 while i1 == i2:
-                    i1 = select_client(idle_clients)
+                    if len(idle_clients) > 2:
+                        i1 = select_client(idle_clients)
+                    else:
+                        i1 = random.choice(idle_clients)
+
                     i2 = random.choice(idle_clients)
 
                     attempt += 1
@@ -567,6 +615,24 @@ def run_httpd(server_class=ThreadingHTTPServer, handler_class=http_server, addr=
     flog(f"Starting httpd server on {addr}:{port}")
     httpd.serve_forever()
 
+def client_listener():
+    HOST = ''
+    PORT = 28028
+    ss = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    ss.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    ss.bind((HOST, PORT))
+    ss.listen(128)
+
+    while True:
+        cs, addr = ss.accept()
+        flog('tcp connection with %s %s ' % (cs, addr))
+
+        cs.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
+        t = threading.Thread(target=add_client, args=(cs,addr,))
+        t.start()
+
+
 idle_clients = []
 playing_clients = []
 
@@ -576,20 +642,7 @@ t.start()
 t = threading.Thread(target=run_httpd)
 t.start()
 
-HOST = ''
-PORT = 28028
-ss = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-ss.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-ss.bind((HOST, PORT))
-ss.listen(128)
+t = threading.Thread(target=client_listener)
+t.start()
 
-while True:
-
-    # wait for a new client on a socket
-    cs, addr = ss.accept()
-    flog('tcp connection with %s %s ' % (cs, addr))
-
-    cs.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-
-    t = threading.Thread(target=add_client, args=(cs,addr,))
-    t.start()
+run_websockets_server()
