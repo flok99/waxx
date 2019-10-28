@@ -63,7 +63,7 @@ ax2.plot(x_data, y_data_score, 'r')
 ax2.set_ylabel('score', color='r')
 ax2.tick_params('y', colors='r')
 
-ax2.spines['right'].set_position(('outward', 45)) 
+ax2.spines['right'].set_position(('outward', 60)) 
 
 ax3 = ax.twinx()
 ax3.plot(x_data, y_data_n_games, 'g')

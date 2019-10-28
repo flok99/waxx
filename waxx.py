@@ -152,6 +152,7 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
             took = None
 
             who = p1.name if board.turn == ataxx.BLACK else p2.name
+            side = "black" if board.turn == ataxx.BLACK else "white"
 
             maxwait = (t + time_buffer_hard) / 1000.0
 
@@ -173,7 +174,6 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
                 if bestmove == None:
                     fail1 = True
-                    reason = '%s disconnected' % p1.name
                     p1.quit()
 
                 now = time.time()
@@ -193,7 +193,6 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
                 if bestmove == None:
                     fail2 = True
-                    reason = '%s disconnected' % p2.name
                     p2.quit()
 
                 now = time.time()
@@ -205,16 +204,17 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
             t_left = t + time_buffer_soft - took * 1000
             if t_left < 0 and reason == None:
-                reason = '%s used too much time' % who
+                reason = '%s used too much time (W)' % side
                 flog('%s used %fms too much time' % (who, -t_left))
 
                 if t + time_buffer_hard - took * 1000 < 0:
-                    flog('%s went over the hard limit' % who)
+                    reason = '%s used too much time (F)' % side
+                    flog('%s went over the hard limit' % side)
                     break
 
             if bestmove == None:
                 if reason == None:
-                    reason = 'One/two clients disconnected'
+                    reason = '%s disconnected' % side
                 break
 
             else:
@@ -228,7 +228,8 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
             if board.is_legal(move) == False:
                 who = p1.name if board.turn == ataxx.BLACK else p2.name
-                reason = 'Illegal move by %s: %s' % (who, bestmove)
+                reason = 'Illegal move by %s' % side
+                flog('Illegal move by %s: %s' % (who, bestmove))
 
                 if board.turn == ataxx.BLACK:
                     fail1 = True
