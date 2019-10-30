@@ -54,28 +54,41 @@ ws_data = {}
 ws_data_lock = threading.Lock()
 
 async def ws_serve(websocket, path):
+    global ws_data
+    global ws_data_lock
+
     try:
-        flog('Websocket started')
+        remote_ip = websocket.remote_address[0]
+        flog('Websocket started for %s' % remote_ip)
 
         listen_pair = await websocket.recv()
         flog('Websocket is listening for %s' % listen_pair)
 
-        p_fen = None
+        p_np = p_fen = None
 
         while True:
-            send = None
+            send = send_np = None
 
             with ws_data_lock:
                 if p_fen == None or ws_data[listen_pair] != p_fen:
                     send = p_fen = ws_data[listen_pair]
 
+                if p_np == None or ws_data['new_pair'] != p_np:
+                    send_np = p_np = ws_data['new_pair']
+
             if send:
                 await websocket.send('fen %s' % send)
+
+            if send_np:
+                await websocket.send('new_pair %s %s' % (send_np[0], send_np[1]))
 
             await asyncio.sleep(0.25)
 
     except Exception as e:
         flog('ws_serve: %s' % e)
+        fh = open(logfile, 'a')
+        traceback.print_exc(file=fh)
+        fh.close()
 
 def run_websockets_server():
     start_server = websockets.serve(ws_serve, ws_interface, ws_port)
@@ -109,7 +122,6 @@ try:
     conn.close()
 except Exception as e:
     flog('db create: %s' % e)
-    pass
 
 temp = open(book, 'r').readlines()
 book_lines = [line.rstrip('\n') for line in temp]
@@ -128,9 +140,12 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
         p2 = p2_in[0]
         p2_user = p2_in[1]
 
-        flog('Starting game between %s(%s) and %s(%s)' % (p1.name, p1_user, p2.name, p2_user))
+        flog(' *** Starting game between %s(%s) and %s(%s)' % (p1.name, p1_user, p2.name, p2_user))
 
         pair = '%s|%s' % (p1_user, p2_user)
+
+        with ws_data_lock:
+            ws_data['new_pair'] = (p1_user, p2_user)
 
         p1.uainewgame()
         p1.setoption('UCI_Opponent', 'none none computer %s' % p2.name)
