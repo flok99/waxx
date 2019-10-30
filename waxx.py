@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+import logging
 import mysql.connector
 import queue
 import random
@@ -49,6 +50,10 @@ match_history_size = 25
 logfile = 'waxx.log'
 
 ###
+
+logger = logging.getLogger('websockets.server')
+logger.setLevel(logging.ERROR)
+logger.addHandler(logging.FileHandler(logfile))
 
 ws_data = {}
 ws_data_lock = threading.Lock()
