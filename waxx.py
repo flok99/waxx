@@ -386,6 +386,9 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
         traceback.print_exc(file=fh)
         fh.close()
 
+        with lock:
+            playing_clients.remove((p1_in, p2_in))
+
         fail1 = fail2 = True
 
     try:
