@@ -50,6 +50,11 @@ if user == None or password == None:
     usage()
     sys.exit(1)
 
+if engine == None:
+    print('No program selected')
+    usage()
+    sys.exit(1)
+
 def engine_thread(sck, eng):
     try:
         while True:
@@ -88,6 +93,9 @@ def socket_thread(eng, sck):
         print('Socket_thread terminating', e)
 
 while True:
+    s = None
+    p = None
+
     try:
         print('Start process')
         p = subprocess.Popen(engine, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
