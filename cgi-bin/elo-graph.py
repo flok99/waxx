@@ -32,7 +32,10 @@ c.execute('SELECT DISTINCT p1 FROM results UNION SELECT DISTINCT p2 FROM results
 for row in c.fetchall():
     i.addPlayer(row[0], rating=1000)
 
-c.execute("SELECT UNIX_TIMESTAMP(ts) AS ts, result, p1, p2 FROM results WHERE p1=%s AND result != '*' UNION ALL SELECT UNIX_TIMESTAMP(ts) AS ts, IF(result='1/2-1/2', '1/2-1/2', REVERSE(result)) AS result, p2 AS p1, p1 AS p2 FROM results WHERE p2=%s AND result != '*' ORDER BY ts ASC", (user, user, ))
+if user:
+    c.execute("SELECT UNIX_TIMESTAMP(ts) AS ts, result, p1, p2 FROM results WHERE p1=%s AND result != '*' UNION ALL SELECT UNIX_TIMESTAMP(ts) AS ts, IF(result='1/2-1/2', '1/2-1/2', REVERSE(result)) AS result, p2 AS p1, p1 AS p2 FROM results WHERE p2=%s AND result != '*' ORDER BY ts ASC", (user, user, ))
+else:
+    c.execute("SELECT UNIX_TIMESTAMP(ts) AS ts, result, p1, p2 FROM results WHERE result != '*' UNION ALL SELECT UNIX_TIMESTAMP(ts) AS ts, IF(result='1/2-1/2', '1/2-1/2', REVERSE(result)) AS result, p2 AS p1, p1 AS p2 FROM results WHERE result != '*' ORDER BY ts ASC")
 
 x_data = []
 y_data = []
@@ -52,10 +55,21 @@ for row in c.fetchall():
 
     rating = None
 
-    for entry in i.getRatingList():
-        if entry[0] == user:
-            rating = entry[1]
-            break
+    if user:
+        for entry in i.getRatingList():
+            if entry[0] == user:
+                rating = entry[1]
+                break
+
+    else:
+        n = 0
+        rating = 0
+
+        for entry in i.getRatingList():
+            rating += entry[1]
+            n += 1
+
+        rating /= n
 
     x_data.append(ts)
     y_data.append(rating)
@@ -77,7 +91,10 @@ my_dpi = 75
 p = plt.figure(figsize=(800 / my_dpi, 480 / my_dpi), dpi=my_dpi)
 ax = p.add_subplot(111)
 ax.set(xlabel='time')
-ax.set(ylabel='elo rating')
+if user:
+    ax.set(ylabel='elo rating')
+else:
+    ax.set(ylabel='average elo rating')
 
 xfmt = md.DateFormatter('%Y-%m-%d %H:%M:%S')
 ax.xaxis.set_major_formatter(xfmt)

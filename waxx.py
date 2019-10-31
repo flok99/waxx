@@ -82,12 +82,15 @@ async def ws_serve(websocket, path):
                     send_np = p_np = ws_data['new_pair']
 
             if send:
-                await websocket.send('fen %s' % send)
+                await websocket.send('fen %s %s %f' % (send[0], send[1], send[2]))
 
             if send_np:
-                await websocket.send('new_pair %s %s' % (send_np[0], send_np[1]))
+                await websocket.send('new_pair %s %s %f' % (send_np[0], send_np[1], send_np[2]))
 
             await asyncio.sleep(0.25)
+
+    except websockets.exceptions.ConnectionClosedOK:
+        flog('ws_serve: socket disconnected')
 
     except Exception as e:
         flog('ws_serve: %s' % e)
@@ -150,7 +153,7 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
         pair = '%s|%s' % (p1_user, p2_user)
 
         with ws_data_lock:
-            ws_data['new_pair'] = (p1_user, p2_user)
+            ws_data['new_pair'] = (p1_user, p2_user, time.time())
 
         p1.uainewgame()
         p1.setoption('UCI_Opponent', 'none none computer %s' % p2.name)
@@ -180,9 +183,10 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
             m = {}
             m['move_nr'] = board.fullmove_clock
-            with ws_data_lock:
-                ws_data[pair] = m['fen'] = board.get_fen()
+            m['fen'] = board.get_fen()
             m['is_p1'] = 1 if board.turn == ataxx.BLACK else 0
+
+            now = None
 
             if board.turn == ataxx.BLACK:
                 p1.position(board.get_fen())
@@ -194,7 +198,11 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
                 if bestmove == None:
                     fail1 = True
-                    p1.quit()
+
+                    try:
+                        p1.quit()
+                    except:
+                        pass
 
                 now = time.time()
                 took = now - start
@@ -213,7 +221,11 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
                 if bestmove == None:
                     fail2 = True
-                    p2.quit()
+
+                    try:
+                        p2.quit()
+                    except:
+                        pass
 
                 now = time.time()
                 took = now - start
@@ -265,7 +277,7 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
             m['score'] = board.score()
 
             with ws_data_lock:
-                ws_data[pair] = board.get_fen()
+                ws_data[pair] = (board.get_fen(), bestmove, now)
 
             moves.append(m)
 
@@ -273,9 +285,9 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
                 reason = 'fifty moves'
                 break
 
-            if board.max_length_draw():
-                reason = 'max length'
-                break
+            #if board.max_length_draw(): FIXME
+            #    reason = 'max length'
+            #    break
 
         game = ataxx.pgn.Game()
         game.from_board(board)
