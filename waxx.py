@@ -123,7 +123,7 @@ def flog(what):
 try:
     conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
     c = conn.cursor()
-    c.execute('CREATE TABLE results(id INT(12) NOT NULL AUTO_INCREMENT, ts datetime, p1 varchar(64), e1 varchar(128), t1 double, p2 varchar(64), e2 varchar(128), t2 double, result varchar(7), adjudication varchar(128), plies int, tpm int, pgn text, md5 char(32), primary key(id))')
+    c.execute('CREATE TABLE results(id INT(12) NOT NULL AUTO_INCREMENT, ts datetime, p1 varchar(64), e1 varchar(128), t1 double, p2 varchar(64), e2 varchar(128), t2 double, result varchar(7), adjudication varchar(128), plies int, tpm int, pgn text, md5 char(32), score int, primary key(id))')
     c.execute('CREATE TABLE players(user varchar(64), password varchar(64), author varchar(128), engine varchar(128), rating double default 1000, w int(8) default 0, d int(8) default 0, l int(8) default 0, failure_count int(8) default 0, primary key(user))')
     c.execute('create table moves(results_id int not null, move_nr int(4), fen varchar(128), move varchar(5), took double, score int, is_p1 int(1), foreign key(results_id) references results(id) )')
     conn.commit()
@@ -330,7 +330,7 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
             adjudication = reason if reason != None else ''
 
             c = conn.cursor()
-            c.execute("INSERT INTO results(ts, p1, e1, t1, p2, e2, t2, result, adjudication, plies, tpm, pgn, md5) VALUES(NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", (p1_user, p1.name, t1, p2_user, p2.name, t2, board.result(), adjudication, n_ply, t, pgn, hash_))
+            c.execute("INSERT INTO results(ts, p1, e1, t1, p2, e2, t2, result, adjudication, plies, tpm, pgn, md5, score) VALUES(NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", (p1_user, p1.name, t1, p2_user, p2.name, t2, board.result(), adjudication, n_ply, t, pgn, hash_, board.score()))
             id_ = c.lastrowid
 
             c = conn.cursor()
@@ -417,20 +417,23 @@ def weighted_random(pairs):
         if r <= 0:
             return value
 
-def select_client(idle_clients):
+def select_client(idle_clients, first):
     pairs = []
 
     conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
     c = conn.cursor()
 
-    c.execute('SELECT MAX(w + d + l) AS count FROM players')
+    c.execute('SELECT MAX(rating) AS max_rating FROM players')
     max_ = c.fetchone()[0]
 
+    c.execute('SELECT rating FROM players WHERE user=%s', (first[1],))
+    first_rating = c.fetchone()[0]
+
     for client in idle_clients:
-        c.execute('SELECT w + d + l AS count FROM players WHERE user=%s', (client[1],))
+        c.execute('SELECT rating FROM players WHERE user=%s', (client[1],))
         row = c.fetchone()
 
-        pairs.append((round(max_ - row[0]), client))
+        pairs.append((round(max_ - abs(first_rating - row[0])), client))
 
     conn.close()
 
@@ -451,12 +454,12 @@ def match_scheduler():
 
                 attempt = 0
                 while i1 == i2:
-                    if len(idle_clients) > 2:
-                        i1 = select_client(idle_clients)
-                    else:
-                        i1 = random.choice(idle_clients)
+                    i1 = random.choice(idle_clients)
 
-                    i2 = random.choice(idle_clients)
+                    if len(idle_clients) > 2:
+                        i2 = select_client(idle_clients, i1)
+                    else:
+                        i2 = random.choice(idle_clients)
 
                     attempt += 1
                     if attempt >= 5:
