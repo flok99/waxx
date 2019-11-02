@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import janus
 import json
 import logging
 import mysql.connector
@@ -57,6 +58,7 @@ logger.addHandler(logging.FileHandler(logfile))
 
 ws_data = {}
 ws_data_lock = threading.Lock()
+ws_queue = janus.Queue(loop=asyncio.get_event_loop())
 
 async def ws_serve(websocket, path):
     global ws_data
@@ -87,7 +89,7 @@ async def ws_serve(websocket, path):
             if send_np:
                 await websocket.send('new_pair %s %s %f' % (send_np[0], send_np[1], send_np[2]))
 
-            await asyncio.sleep(0.25)
+            await ws_queue.async_q.get()
 
     except websockets.exceptions.ConnectionClosedOK:
         flog('ws_serve: socket disconnected')
@@ -139,6 +141,7 @@ last_activity = {}
 
 def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
     global book_lines
+    global ws_queue
 
     fail2 = fail1 = False
 
@@ -154,6 +157,7 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
         with ws_data_lock:
             ws_data['new_pair'] = (p1_user, p2_user, time.time())
+            ws_queue.sync_q.put(None)
 
         p1.uainewgame()
         p1.setoption('UCI_Opponent', 'none none computer %s' % p2.name)
@@ -278,6 +282,7 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
             with ws_data_lock:
                 ws_data[pair] = (board.get_fen(), bestmove, now)
+                ws_queue.sync_q.put(None)
 
             moves.append(m)
 
