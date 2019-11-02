@@ -4,6 +4,7 @@ import ataxx
 import ataxx.pgn
 
 import cgi
+import datetime
 import io
 import json
 import mysql.connector
@@ -27,15 +28,12 @@ c = conn.cursor()
 
 i = elopy.Implementation()
 
-c.execute('SELECT DISTINCT p1 FROM results UNION SELECT DISTINCT p2 FROM results')
+c.execute('SELECT user FROM players')
 
 for row in c.fetchall():
-    i.addPlayer(row[0], rating=1000)
+    i.addPlayer(row[0])
 
-if user:
-    c.execute("SELECT UNIX_TIMESTAMP(ts) AS ts, result, p1, p2 FROM results WHERE p1=%s AND result != '*' UNION ALL SELECT UNIX_TIMESTAMP(ts) AS ts, IF(result='1/2-1/2', '1/2-1/2', REVERSE(result)) AS result, p2 AS p1, p1 AS p2 FROM results WHERE p2=%s AND result != '*' ORDER BY ts ASC", (user, user, ))
-else:
-    c.execute("SELECT UNIX_TIMESTAMP(ts) AS ts, result, p1, p2 FROM results WHERE result != '*' UNION ALL SELECT UNIX_TIMESTAMP(ts) AS ts, IF(result='1/2-1/2', '1/2-1/2', REVERSE(result)) AS result, p2 AS p1, p1 AS p2 FROM results WHERE result != '*' ORDER BY ts ASC")
+c.execute("SELECT UNIX_TIMESTAMP(ts) AS ts, result, p1, p2 FROM results WHERE result != '*' ORDER BY ts")
 
 x_data = []
 y_data = []
@@ -50,16 +48,15 @@ for row in c.fetchall():
         i.recordMatch(p1, p2, winner=p1)
     elif result == '0-1':
         i.recordMatch(p1, p2, winner=p2)
-    else:
+    elif result == '1/2-1/2':
         i.recordMatch(p1, p2, draw=True)
+    else:
+        continue
 
     rating = None
 
     if user:
-        for entry in i.getRatingList():
-            if entry[0] == user:
-                rating = entry[1]
-                break
+        rating = i.getPlayerRating(user)
 
     else:
         n = 0
@@ -96,14 +93,12 @@ if user:
 else:
     ax.set(ylabel='average elo rating')
 
-xfmt = md.DateFormatter('%Y-%m-%d %H:%M:%S')
-ax.xaxis.set_major_formatter(xfmt)
+ax.xaxis.set_major_formatter(md.DateFormatter('%Y-%m-%d'))
 dates=[dt.datetime.fromtimestamp(ts) for ts in x_data]
-plt.xticks(rotation=30)
-plt.subplots_adjust(bottom=0.2)
 
 ax.plot(dates, y_data)
 
 buffer_ = io.BytesIO()
+p.autofmt_xdate()
 plt.savefig(buffer_, format='svg')
 print(buffer_.getvalue().decode('utf-8'))
