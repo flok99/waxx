@@ -77,10 +77,10 @@ async def ws_serve(websocket, path):
             send = send_np = None
 
             with ws_data_lock:
-                if p_fen == None or ws_data[listen_pair] != p_fen:
+                if listen_pair in ws_data and (p_fen == None or ws_data[listen_pair] != p_fen):
                     send = p_fen = ws_data[listen_pair]
 
-                if p_np == None or ws_data['new_pair'] != p_np:
+                if 'new_pair' in ws_data and (p_np == None or  ws_data['new_pair'] != p_np):
                     send_np = p_np = ws_data['new_pair']
 
             if send:
