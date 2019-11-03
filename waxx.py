@@ -64,7 +64,7 @@ async def ws_serve(websocket, path):
     global ws_data
     global ws_data_lock
 
-    remote_addr = websocket.remote_address
+    remote_addr = str(websocket.remote_address)
 
     try:
         flog('%s] websocket started' % remote_addr)
