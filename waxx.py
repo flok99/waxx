@@ -163,11 +163,6 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
     try:
         flog(' *** Starting game between %s(%s) and %s(%s)' % (p1.name, p1_user, p2.name, p2_user))
-
-        with ws_data_lock:
-            ws_data['new_pair'] = (p1_user, p2_user, time.time())
-            ws_queue.sync_q.put(None)
-
         p1.uainewgame()
         p1.setoption('UCI_Opponent', 'none none computer %s' % p2.name)
         p2.uainewgame()
@@ -176,6 +171,12 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
         pos = random.choice(book_lines)
 
         board = ataxx.Board(pos)
+
+        with ws_data_lock:
+            now = time.time()
+            ws_data[pair] = (board.get_fen(), 'START', now)
+            ws_data['new_pair'] = (p1_user, p2_user, now)
+            ws_queue.sync_q.put(None)
 
         reason = None
 
