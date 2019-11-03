@@ -64,12 +64,13 @@ async def ws_serve(websocket, path):
     global ws_data
     global ws_data_lock
 
+    remote_addr = websocket.remote_address
+
     try:
-        remote_ip = websocket.remote_address[0]
-        flog('Websocket started for %s' % remote_ip)
+        flog('%s] websocket started' % remote_addr)
 
         listen_pair = await websocket.recv()
-        flog('Websocket is listening for %s' % listen_pair)
+        flog('%s] websocket is listening for %s' % (remote_addr, listen_pair))
 
         p_np = p_fen = None
 
@@ -84,18 +85,26 @@ async def ws_serve(websocket, path):
                     send_np = p_np = ws_data['new_pair']
 
             if send:
-                await websocket.send('fen %s %s %f' % (send[0], send[1], send[2]))
+                str_ = 'fen %s %s %f' % (send[0], send[1], send[2])
+
+                flog('%s] send "%s"' % (remote_addr, str_))
+
+                await websocket.send(str_)
 
             if send_np:
-                await websocket.send('new_pair %s %s %f' % (send_np[0], send_np[1], send_np[2]))
+                str_ = 'new_pair %s %s %f' % (send_np[0], send_np[1], send_np[2])
+
+                flog('%s] send "%s"' % (remote_addr, str_))
+
+                await websocket.send(str_)
 
             await ws_queue.async_q.get()
 
     except websockets.exceptions.ConnectionClosedOK:
-        flog('ws_serve: socket disconnected')
+        flog('%s] ws_serve: socket disconnected' % remote_addr)
 
     except Exception as e:
-        flog('ws_serve: %s' % e)
+        flog('%s] ws_serve: %s' % (e, remote_addr))
         fh = open(logfile, 'a')
         traceback.print_exc(file=fh)
         fh.close()
@@ -145,15 +154,15 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
     fail2 = fail1 = False
 
+    p1 = p1_in[0]
+    p1_user = p1_in[1]
+    p2 = p2_in[0]
+    p2_user = p2_in[1]
+
+    pair = '%s|%s' % (p1_user, p2_user)
+
     try:
-        p1 = p1_in[0]
-        p1_user = p1_in[1]
-        p2 = p2_in[0]
-        p2_user = p2_in[1]
-
         flog(' *** Starting game between %s(%s) and %s(%s)' % (p1.name, p1_user, p2.name, p2_user))
-
-        pair = '%s|%s' % (p1_user, p2_user)
 
         with ws_data_lock:
             ws_data['new_pair'] = (p1_user, p2_user, time.time())
@@ -198,7 +207,7 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
                 try:
                     bestmove, ponder = p1.go(movetime=t, maxwait=maxwait)
                 except Exception as e:
-                    flog('p1.go threw %s' % e)
+                    flog('p1.go (%s) threw %s' % (p1.name, e))
 
                 if bestmove == None:
                     fail1 = True
@@ -221,7 +230,7 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
                 try:
                     bestmove, ponder = p2.go(movetime=t, maxwait=maxwait)
                 except Exception as e:
-                    flog('p2.go threw %s' % e)
+                    flog('p2.go (%s) threw %s' % (p2.name, e))
 
                 if bestmove == None:
                     fail2 = True
@@ -260,9 +269,16 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
             n_ply += 1
 
             flog('%s) %s => %s (%f)' % (who, board.get_fen(), bestmove, took))
-            move = ataxx.Move.from_san(bestmove)
 
-            if board.is_legal(move) == False:
+            is_legal = False
+            try:
+                move = ataxx.Move.from_san(bestmove)
+                is_legal = board.is_legal(move)
+
+            except Exception as e:
+                flog('%s) move is in invalid: %s' % (who, e))
+
+            if not is_legal:
                 who = p1.name if board.turn == ataxx.BLACK else p2.name
                 reason = 'Illegal move by %s' % side
                 flog('Illegal move by %s: %s' % (who, bestmove))
@@ -386,7 +402,7 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
             conn.close()
 
     except Exception as e:
-        flog('failure: %s' % e)
+        flog('failure: %s (%s)' % (e, pair))
         fh = open(logfile, 'a')
         traceback.print_exc(file=fh)
         fh.close()
