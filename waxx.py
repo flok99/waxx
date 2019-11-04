@@ -86,7 +86,7 @@ async def ws_serve(websocket, path):
             with ws_data_lock:
                 if listen_pair in ws_data and (p_fen == None or ws_data[listen_pair] != p_fen):
                     send = p_fen = ws_data[listen_pair]
-                elif first:
+                elif first: # FIXME debug code
                     flog('%s] no pair for %s' % (remote_addr, listen_pair))
                     flog('%s' % str(ws_data))
                     flog('%s' % str(ws_msgs))
@@ -193,11 +193,12 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
         board = ataxx.Board(pos)
 
+        game_start = time.time()
+
         with ws_data_lock:
-            now = time.time()
-            ws_data[pair] = (board.get_fen(), 'START', now)
-            ws_data['new_pair'] = (p1_user, p2_user, now)
-            ws_msgs[pair] = ('Playing', now)
+            ws_data[pair] = (board.get_fen(), 'START', game_start)
+            ws_data['new_pair'] = (p1_user, p2_user, game_start)
+            ws_msgs[pair] = ('Playing', game_start)
             ws_queue.sync_q.put(None)
 
         reason = None
@@ -338,6 +339,8 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
             #    reason = 'max length'
             #    break
 
+        game_took = time.time() - game_start
+
         game = ataxx.pgn.Game()
         game.from_board(board)
         game.set_white(p1_user)
@@ -437,7 +440,7 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
         with ws_data_lock:
             now = time.time()
             if ws_msgs[pair][0] == 'Playing':
-                ws_msgs[pair] = ('Finished', now)
+                ws_msgs[pair] = ('Finished (in %f seconds)' % round(game_took, 2), now)
             ws_queue.sync_q.put(None)
 
     except Exception as e:
