@@ -57,6 +57,7 @@ logger.setLevel(logging.ERROR)
 logger.addHandler(logging.FileHandler(logfile))
 
 ws_data = {}
+ws_msgs = {}
 ws_data_lock = threading.Lock()
 ws_queue = janus.Queue(loop=asyncio.get_event_loop())
 
@@ -69,23 +70,43 @@ async def ws_serve(websocket, path):
     try:
         flog('%s] websocket started' % remote_addr)
 
+        await websocket.send('msg Initializing...')
+
+        flog('%s] websocket waiting for pair-request' % remote_addr)
+
         listen_pair = await websocket.recv()
         flog('%s] websocket is listening for %s' % (remote_addr, listen_pair))
 
-        p_np = p_fen = None
+        p_np = p_fen = p_msg = None
 
+        first = True
         while True:
-            send = send_np = None
+            send = send_np = send_msg = None
 
             with ws_data_lock:
                 if listen_pair in ws_data and (p_fen == None or ws_data[listen_pair] != p_fen):
                     send = p_fen = ws_data[listen_pair]
+                elif first:
+                    flog('%s] no pair for %s' % (remote_addr, listen_pair))
+                    flog('%s' % str(ws_data))
+                    flog('%s' % str(ws_msgs))
+                    first = False
 
-                if 'new_pair' in ws_data and (p_np == None or  ws_data['new_pair'] != p_np):
+                if 'new_pair' in ws_data and (p_np == None or ws_data['new_pair'] != p_np):
                     send_np = p_np = ws_data['new_pair']
+
+                if listen_pair in ws_msgs and (p_msg == None or ws_msgs[listen_pair] != p_msg):
+                    send_msg = p_msg = ws_msgs[listen_pair]
 
             if send:
                 str_ = 'fen %s %s %f' % (send[0], send[1], send[2])
+
+                flog('%s] send "%s"' % (remote_addr, str_))
+
+                await websocket.send(str_)
+
+            if send_msg:
+                str_ = 'msg %s' % (send_msg[0])
 
                 flog('%s] send "%s"' % (remote_addr, str_))
 
@@ -176,6 +197,7 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
             now = time.time()
             ws_data[pair] = (board.get_fen(), 'START', now)
             ws_data['new_pair'] = (p1_user, p2_user, now)
+            ws_msgs[pair] = ('Playing', now)
             ws_queue.sync_q.put(None)
 
         reason = None
@@ -251,7 +273,12 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
             t_left = t + time_buffer_soft - took * 1000
             if t_left < 0 and reason == None:
                 reason = '%s used too much time (W)' % side
-                flog('%s used %fms too much time' % (who, -t_left))
+                log_msg = '%s used %fms too much time' % (who, -t_left)
+                flog(log_msg)
+
+                with ws_data_lock:
+                    ws_msgs[pair] = (log_msg, time.time())
+                    ws_queue.sync_q.put(None)
 
                 if t + time_buffer_hard - took * 1000 < 0:
                     reason = '%s used too much time (F)' % side
@@ -319,6 +346,11 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
             game.set_adjudicated(reason)
 
         flog('%s(%s) versus %s(%s): %s (%s)' % (p1.name, p1_user, p2.name, p2_user, board.result(), reason))
+
+        if reason:
+            with ws_data_lock:
+                ws_msgs[pair] = (reason, time.time())
+                ws_queue.sync_q.put(None)
 
         with lock:
             # update internal structures representing who is playing or not
@@ -401,6 +433,12 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
             conn.commit()
             conn.close()
+
+        with ws_data_lock:
+            now = time.time()
+            if ws_msgs[pair][0] == 'Playing':
+                ws_msgs[pair] = ('Finished', now)
+            ws_queue.sync_q.put(None)
 
     except Exception as e:
         flog('failure: %s (%s)' % (e, pair))
@@ -523,7 +561,7 @@ def add_client(sck, addr):
             buf += sck.recv(1024).decode()
 
         lf = buf.find('\n')
-        user = buf[5:lf].lower().rstrip()
+        user = buf[5:lf].lower().strip()
 
         if user == '':
             sck.close()
@@ -534,7 +572,7 @@ def add_client(sck, addr):
             buf += sck.recv(1024).decode()
 
         lf = buf.find('\n')
-        password = buf[5:lf].rstrip()
+        password = buf[5:lf].strip()
 
         if password == '':
             sck.close()
