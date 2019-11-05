@@ -57,6 +57,7 @@ lock = threading.Lock()
 last_activity = {}
 idle_clients = []
 playing_clients = []
+last_change = 0
 
 ws_data = {}
 ws_msgs = {}
@@ -64,6 +65,8 @@ ws_new_data = {}
 ws_data_lock = threading.Lock()
 
 async def ws_serve(websocket, path):
+    global last_change
+    global lock
     global ws_data
     global ws_new_data
     global ws_data_lock
@@ -109,7 +112,6 @@ async def ws_serve(websocket, path):
                     await websocket.send(str_)
 
                 if send_new_data:
-                    flog('%s] send "%s"' % (remote_addr, send_new_data))
                     await websocket.send(send_new_data)
 
                 if send_msg:
@@ -123,7 +125,20 @@ async def ws_serve(websocket, path):
                 await asyncio.sleep(0.25)
 
         elif 'list' in path:
-            await websocket.send(json.dumps(get_players_idlers()))
+            plc = None
+
+            while True:
+                lc = 0
+
+                with lock:
+                    lc = last_change
+
+                if plc != lc:
+                    flog('%s] send idlers/players' % remote_addr)
+                    await websocket.send(json.dumps(get_players_idlers()))
+                    plc = lc
+
+                await asyncio.sleep(1)
 
     except websockets.exceptions.ConnectionClosedOK:
         flog('%s] ws_serve: socket disconnected' % remote_addr)
@@ -247,6 +262,7 @@ book_lines = [line.rstrip('\n') for line in temp]
 
 def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
     global book_lines
+    global last_change
 
     fail2 = fail1 = False
 
@@ -325,6 +341,7 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
                 with lock:
                     last_activity[p1.name] = now
+                    last_change = now
 
             else:
                 p2.position(board.get_fen())
@@ -348,6 +365,7 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
                 with lock:
                     last_activity[p2.name] = now
+                    last_change = now
 
             t_left = t + time_buffer_soft - took * 1000
             if t_left < 0 and reason == None:
@@ -446,13 +464,16 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
         flog('%s(%s) versus %s(%s): %s (%s)' % (p1.name, p1_user, p2.name, p2_user, board.result(), reason))
 
+        now = time.time()
+
         if reason:
             with ws_data_lock:
-                ws_msgs[pair] = (reason, time.time())
+                ws_msgs[pair] = (reason, now)
 
         with lock:
             # update internal structures representing who is playing or not
             playing_clients.remove((p1_in, p2_in))
+            last_change = now
 
             conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
             c = conn.cursor()
@@ -549,6 +570,7 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
         with lock:
             playing_clients.remove((p1_in, p2_in))
+            last_change = time.time()
 
         fail1 = fail2 = True
 
@@ -601,6 +623,8 @@ def select_client(idle_clients, first):
     return weighted_random(pairs)
 
 def match_scheduler():
+    global last_change
+
     before = []
 
     while True:
@@ -637,6 +661,7 @@ def match_scheduler():
                     pair = '%s | %s' % (i1[1], i2[1])
 
                 if not pair in before or n_play == 0:
+                    last_change = time.time()
                     idle_clients.remove(i1)
                     idle_clients.remove(i2)
 
@@ -656,6 +681,8 @@ def match_scheduler():
         time.sleep(1.5)
 
 def add_client(sck, addr):
+    global last_change
+
     try:
         buf = ''
         while not '\n' in buf or not 'user ' in buf:
@@ -717,6 +744,8 @@ def add_client(sck, addr):
                     clnt[0].quit()
 
             idle_clients.append((e, user))
+
+            last_change = time.time()
 
     except Exception as e:
         flog('Fail: %s' % e)
