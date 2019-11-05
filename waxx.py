@@ -2,9 +2,9 @@
 
 import asyncio
 import hashlib
-import janus
 import json
 import logging
+import math
 import mysql.connector
 import queue
 import random
@@ -15,8 +15,6 @@ import threading
 import time
 import traceback
 import websockets
-
-from http.server import ThreadingHTTPServer, HTTPServer, BaseHTTPRequestHandler
 
 from EloPy import elopy
 
@@ -40,8 +38,7 @@ db_user = 'user'
 db_pass = 'pass'
 db_db = 'waxx'
 
-# http server
-http_port = 7623
+# web sockets
 ws_port = 7624
 ws_interface = '127.0.0.1'
 
@@ -58,11 +55,12 @@ logger.addHandler(logging.FileHandler(logfile))
 
 ws_data = {}
 ws_msgs = {}
+ws_new_data = {}
 ws_data_lock = threading.Lock()
-ws_queue = janus.Queue(loop=asyncio.get_event_loop())
 
 async def ws_serve(websocket, path):
     global ws_data
+    global ws_new_data
     global ws_data_lock
 
     remote_addr = str(websocket.remote_address)
@@ -78,19 +76,21 @@ async def ws_serve(websocket, path):
         flog('%s] websocket is listening for %s' % (remote_addr, listen_pair))
 
         p_np = p_fen = p_msg = None
+        p_new_data = None
 
-        first = True
         while True:
             send = send_np = send_msg = None
+            send_new_data = None
 
             with ws_data_lock:
                 if listen_pair in ws_data and (p_fen == None or ws_data[listen_pair] != p_fen):
                     send = p_fen = ws_data[listen_pair]
-                elif first: # FIXME debug code
-                    flog('%s] no pair for %s' % (remote_addr, listen_pair))
-                    flog('%s' % str(ws_data))
-                    flog('%s' % str(ws_msgs))
-                    first = False
+
+                if listen_pair in ws_new_data:
+                    temp = json.dumps(ws_new_data[listen_pair])
+
+                    if p_new_data == None or temp != p_new_data:
+                        send_new_data = p_new_data = temp
 
                 if 'new_pair' in ws_data and (p_np == None or ws_data['new_pair'] != p_np):
                     send_np = p_np = ws_data['new_pair']
@@ -100,26 +100,21 @@ async def ws_serve(websocket, path):
 
             if send:
                 str_ = 'fen %s %s %f' % (send[0], send[1], send[2])
-
-                flog('%s] send "%s"' % (remote_addr, str_))
-
                 await websocket.send(str_)
+
+            if send_new_data:
+                flog('%s] send "%s"' % (remote_addr, send_new_data))
+                await websocket.send(send_new_data)
 
             if send_msg:
                 str_ = 'msg %f %s' % (send_msg[1], send_msg[0])
-
-                flog('%s] send "%s"' % (remote_addr, str_))
-
                 await websocket.send(str_)
 
             if send_np:
                 str_ = 'new_pair %s %s %f' % (send_np[0], send_np[1], send_np[2])
-
-                flog('%s] send "%s"' % (remote_addr, str_))
-
                 await websocket.send(str_)
 
-            await ws_queue.async_q.get()
+            await asyncio.sleep(0.25)
 
     except websockets.exceptions.ConnectionClosedOK:
         flog('%s] ws_serve: socket disconnected' % remote_addr)
@@ -135,6 +130,47 @@ def run_websockets_server():
 
     asyncio.get_event_loop().run_until_complete(start_server)
     asyncio.get_event_loop().run_forever()
+
+def start_ws_record(pair):
+    flog('%s, start new' % pair)
+
+    with ws_data_lock:
+        ws_new_data[pair] = []
+
+def add_ws_move_record(pair, m):
+    record = {}
+
+    record['type'] = 'move'
+
+    fen = m['fen'].split(' ')
+    record['fen'] = fen[0]
+    record['color'] = fen[1]
+    record['half_move'] = fen[2]
+    record['full_move'] = fen[3]
+
+    record['move'] = m['move']
+
+    record['score'] = m['score']
+
+    record['move_took'] = math.ceil(m['took'] * 1000.0)
+    record['timestamp'] = math.floor(m['ts'] * 1000.0)
+
+    flog('%s add %s' % (pair, json.dumps(record)))
+
+    with ws_data_lock:
+        ws_new_data[pair].append(record)
+
+def add_ws_msg_record(pair, txt):
+    record = {}
+
+    record['type'] = 'msg'
+    record['msg'] = txt
+    record['timestamp'] = math.floor(time.time() * 1000.0)
+
+    flog('%s add %s' % (pair, json.dumps(record)))
+
+    with ws_data_lock:
+        ws_new_data[pair].append(record)
 
 def flog(what):
     if not logfile:
@@ -171,7 +207,6 @@ last_activity = {}
 
 def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
     global book_lines
-    global ws_queue
 
     fail2 = fail1 = False
 
@@ -184,6 +219,8 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
     try:
         flog(' *** Starting game between %s(%s) and %s(%s)' % (p1.name, p1_user, p2.name, p2_user))
+        start_ws_record(pair)
+
         p1.uainewgame()
         p1.setoption('UCI_Opponent', 'none none computer %s' % p2.name)
         p2.uainewgame()
@@ -199,7 +236,6 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
             ws_data[pair] = (board.get_fen(), 'START', game_start)
             ws_data['new_pair'] = (p1_user, p2_user, game_start)
             ws_msgs[pair] = ('Playing', game_start)
-            ws_queue.sync_q.put(None)
 
         reason = None
 
@@ -277,20 +313,24 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
             if t_left < 0 and reason == None:
                 reason = '%s used too much time (W)' % side
                 log_msg = '%s used %fms too much time' % (who, -round(t_left, 3))
+                add_ws_msg_record(pair, reason)
                 flog(log_msg)
 
                 with ws_data_lock:
                     ws_msgs[pair] = (log_msg, time.time())
-                    ws_queue.sync_q.put(None)
 
                 if t + time_buffer_hard - took * 1000 < 0:
                     reason = '%s used too much time (F)' % side
                     flog('%s went over the hard limit' % side)
+                    add_ws_msg_record(pair, reason)
                     break
+
+            m['ts'] = now
 
             if bestmove == None:
                 if reason == None:
                     reason = '%s disconnected' % side
+                    add_ws_msg_record(pair, reason)
                 break
 
             else:
@@ -314,6 +354,7 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
                 who = p1.name if board.turn == ataxx.BLACK else p2.name
                 reason = 'Illegal move by %s' % side
                 flog('Illegal move by %s: %s' % (who, bestmove))
+                add_ws_msg_record(pair, reason)
 
                 if board.turn == ataxx.BLACK:
                     fail1 = True
@@ -322,21 +363,25 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
                 m['score'] = -9999
                 moves.append(m)
+                add_ws_move_record(pair, m)
                 break
 
             board.makemove(move)
 
             m['score'] = board.score()
 
+            add_ws_move_record(pair, m)
+
             with ws_data_lock:
                 ws_data[pair] = (board.get_fen(), bestmove, now)
-                ws_queue.sync_q.put(None)
-
-            moves.append(m)
 
             if board.fifty_move_draw():
                 reason = 'fifty moves'
+                add_ws_msg_record(pair, reason)
+                moves.append(m)
                 break
+
+            moves.append(m)
 
             #if board.max_length_draw(): FIXME
             #    reason = 'max length'
@@ -344,10 +389,16 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
         game_took = time.time() - game_start
 
+        try:
+            p1_in[0].isready(5)
+            p2_in[0].isready(5)
+        except Exception as e:
+            flog('isready failed: %s' % e)
+
         game = ataxx.pgn.Game()
         last_node = game.from_board(board)
         if illegal_move:
-            last_node.comment = 'Illegal move: ' % illegal_move
+            last_node.comment = 'Illegal move: %s' % illegal_move
         game.set_white(p1_user)
         game.set_black(p2_user)
         if reason:
@@ -358,7 +409,6 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
         if reason:
             with ws_data_lock:
                 ws_msgs[pair] = (reason, time.time())
-                ws_queue.sync_q.put(None)
 
         with lock:
             # update internal structures representing who is playing or not
@@ -442,14 +492,14 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
             conn.commit()
             conn.close()
 
-        with ws_data_lock:
-            now = time.time()
-            if ws_msgs[pair][0] == 'Playing':
-                ws_msgs[pair] = ('Finished (in %f seconds)' % round(game_took, 2), now)
-            ws_queue.sync_q.put(None)
+        now = time.time()
+        if ws_msgs[pair][0] == 'Playing':
+            txt = 'Finished (in %f seconds)' % round(game_took, 2)
 
-        p1_in[0].isready(5)
-        p2_in[0].isready(5)
+            with ws_data_lock:
+                ws_msgs[pair] = (txt, now)
+
+            add_ws_msg_record(pair, txt)
 
     except Exception as e:
         flog('failure: %s (%s)' % (e, pair))
@@ -633,98 +683,6 @@ def add_client(sck, addr):
         sck.close()
         traceback.print_exc(file=sys.stdout)
 
-class http_server(BaseHTTPRequestHandler):
-    def _set_headers(self):
-        self.send_response(200)
-        self.send_header("Content-type", "text/html")
-        self.end_headers()
-
-    def do_GET(self):
-        self._set_headers()
-
-        flog('HTTP request for %s' % self.path)
-
-        out = None
-
-        if self.path == '/':
-            out = '<h3>idle players</h3><table><tr><th>user</th><th>program</th></tr>'
-
-            with lock:
-                for clnt in idle_clients:
-                    p1 = clnt[0]
-                    p1_name = p1.name
-                    p1_user = clnt[1]
-
-                    out += '<tr><td>%s</td><td>%s</td></tr>' % (p1_user, p1_name)
-
-            out += '</table>'
-
-            out += '<h3>playing players</h3><table><tr><th>player 1</th><th>player 2</th></tr>'
-
-            with lock:
-                for couple in playing_clients:
-                    clnt1 = couple[0]
-                    p1 = clnt1[0]
-                    p1_name = p1.name
-                    p1_user = clnt1[1]
-
-                    clnt2 = couple[1]
-                    p2 = clnt2[0]
-                    p2_name = p2.name
-                    p2_user = clnt2[1]
-
-                    out += '<tr><td>%s / %s</td><td>%s / %s</td></tr>' % (p1_user, p1_name, p2_user, p2_name)
-
-            out += '</table>'
-
-        elif self.path == '/json':
-            idles = []
-
-            with lock:
-                for clnt in idle_clients:
-                    p1 = clnt[0]
-                    p1_name = p1.name
-                    p1_user = clnt[1]
-
-                    la = last_activity[p1_name] if p1_name in last_activity else 0
-                    idles.append({ 'user' : p1_user, 'name' : p1_name, 'last_activity' : la })
-
-            playing = []
-
-            with lock:
-                for couple in playing_clients:
-                    clnt1 = couple[0]
-                    p1 = clnt1[0]
-                    p1_name = p1.name
-                    p1_user = clnt1[1]
-
-                    la1 = last_activity[p1_name] if p1_name in last_activity else 0
-
-                    clnt2 = couple[1]
-                    p2 = clnt2[0]
-                    p2_name = p2.name
-                    p2_user = clnt2[1]
-
-                    la2 = last_activity[p2_name] if p2_name in last_activity else 0
-
-                    playing.append({ 'player_1' : { 'user' : p1_user, 'name' : p1_name, 'last_activity' : la1 }, 'player_2' : { 'user' : p2_user, 'name' : p2_name, 'last_activity' : la2 } })
-
-            temp = { 'idle' : idles, 'playing' : playing }
-
-            out = json.dumps(temp)
-
-        self.wfile.write(out.encode('utf8'))
-
-    def do_HEAD(self):
-        self._set_headers()
-
-def run_httpd(server_class=ThreadingHTTPServer, handler_class=http_server, addr='localhost', port=http_port):
-    server_address = (addr, port)
-    httpd = server_class(server_address, handler_class)
-
-    flog(f"Starting httpd server on {addr}:{port}")
-    httpd.serve_forever()
-
 def client_listener():
     HOST = ''
     PORT = 28028
@@ -747,9 +705,6 @@ idle_clients = []
 playing_clients = []
 
 t = threading.Thread(target=match_scheduler)
-t.start()
-
-t = threading.Thread(target=run_httpd)
 t.start()
 
 t = threading.Thread(target=client_listener)
