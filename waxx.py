@@ -70,7 +70,7 @@ async def ws_serve(websocket, path):
     try:
         flog('%s] websocket started' % remote_addr)
 
-        await websocket.send('msg Initializing...')
+        await websocket.send('msg %f Initializing...' % time.time())
 
         flog('%s] websocket waiting for pair-request' % remote_addr)
 
@@ -106,7 +106,7 @@ async def ws_serve(websocket, path):
                 await websocket.send(str_)
 
             if send_msg:
-                str_ = 'msg %s' % (send_msg[0])
+                str_ = 'msg %f %s' % (send_msg[1], send_msg[0])
 
                 flog('%s] send "%s"' % (remote_addr, str_))
 
@@ -223,6 +223,8 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
             m['fen'] = board.get_fen()
             m['is_p1'] = 1 if board.turn == ataxx.BLACK else 0
 
+            illegal_move = None
+
             now = None
 
             if board.turn == ataxx.BLACK:
@@ -274,7 +276,7 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
             t_left = t + time_buffer_soft - took * 1000
             if t_left < 0 and reason == None:
                 reason = '%s used too much time (W)' % side
-                log_msg = '%s used %fms too much time' % (who, -t_left)
+                log_msg = '%s used %fms too much time' % (who, -round(t_left, 3))
                 flog(log_msg)
 
                 with ws_data_lock:
@@ -308,6 +310,7 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
                 flog('%s) move is in invalid: %s' % (who, e))
 
             if not is_legal:
+                illegal_move = bestmove
                 who = p1.name if board.turn == ataxx.BLACK else p2.name
                 reason = 'Illegal move by %s' % side
                 flog('Illegal move by %s: %s' % (who, bestmove))
@@ -342,7 +345,9 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
         game_took = time.time() - game_start
 
         game = ataxx.pgn.Game()
-        game.from_board(board)
+        last_node = game.from_board(board)
+        if illegal_move:
+            last_node.comment = 'Illegal move: ' % illegal_move
         game.set_white(p1_user)
         game.set_black(p2_user)
         if reason:
@@ -442,6 +447,9 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
             if ws_msgs[pair][0] == 'Playing':
                 ws_msgs[pair] = ('Finished (in %f seconds)' % round(game_took, 2), now)
             ws_queue.sync_q.put(None)
+
+        p1_in[0].isready(5)
+        p2_in[0].isready(5)
 
     except Exception as e:
         flog('failure: %s (%s)' % (e, pair))
