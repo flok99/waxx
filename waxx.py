@@ -134,7 +134,6 @@ async def ws_serve(websocket, path):
                     lc = last_change
 
                 if plc != lc:
-                    flog('%s] send idlers/players' % remote_addr)
                     await websocket.send(json.dumps(get_players_idlers()))
                     plc = lc
 
