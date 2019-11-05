@@ -53,6 +53,11 @@ logger = logging.getLogger('websockets.server')
 logger.setLevel(logging.ERROR)
 logger.addHandler(logging.FileHandler(logfile))
 
+lock = threading.Lock()
+last_activity = {}
+idle_clients = []
+playing_clients = []
+
 ws_data = {}
 ws_msgs = {}
 ws_new_data = {}
@@ -66,55 +71,59 @@ async def ws_serve(websocket, path):
     remote_addr = str(websocket.remote_address)
 
     try:
-        flog('%s] websocket started' % remote_addr)
+        flog('%s] websocket started, %s' % (remote_addr, path))
 
-        await websocket.send('msg %f Initializing...' % time.time())
+        if 'viewer' in path:
+            await websocket.send('msg %f Initializing...' % time.time())
 
-        flog('%s] websocket waiting for pair-request' % remote_addr)
+            flog('%s] websocket waiting for pair-request' % remote_addr)
 
-        listen_pair = await websocket.recv()
-        flog('%s] websocket is listening for %s' % (remote_addr, listen_pair))
+            listen_pair = await websocket.recv()
+            flog('%s] websocket is listening for %s' % (remote_addr, listen_pair))
 
-        p_np = p_fen = p_msg = None
-        p_new_data = None
+            p_np = p_fen = p_msg = None
+            p_new_data = None
 
-        while True:
-            send = send_np = send_msg = None
-            send_new_data = None
+            while True:
+                send = send_np = send_msg = None
+                send_new_data = None
 
-            with ws_data_lock:
-                if listen_pair in ws_data and (p_fen == None or ws_data[listen_pair] != p_fen):
-                    send = p_fen = ws_data[listen_pair]
+                with ws_data_lock:
+                    if listen_pair in ws_data and (p_fen == None or ws_data[listen_pair] != p_fen):
+                        send = p_fen = ws_data[listen_pair]
 
-                if listen_pair in ws_new_data:
-                    temp = json.dumps(ws_new_data[listen_pair])
+                    if listen_pair in ws_new_data:
+                        temp = json.dumps(ws_new_data[listen_pair])
 
-                    if p_new_data == None or temp != p_new_data:
-                        send_new_data = p_new_data = temp
+                        if p_new_data == None or temp != p_new_data:
+                            send_new_data = p_new_data = temp
 
-                if 'new_pair' in ws_data and (p_np == None or ws_data['new_pair'] != p_np):
-                    send_np = p_np = ws_data['new_pair']
+                    if 'new_pair' in ws_data and (p_np == None or ws_data['new_pair'] != p_np):
+                        send_np = p_np = ws_data['new_pair']
 
-                if listen_pair in ws_msgs and (p_msg == None or ws_msgs[listen_pair] != p_msg):
-                    send_msg = p_msg = ws_msgs[listen_pair]
+                    if listen_pair in ws_msgs and (p_msg == None or ws_msgs[listen_pair] != p_msg):
+                        send_msg = p_msg = ws_msgs[listen_pair]
 
-            if send:
-                str_ = 'fen %s %s %f' % (send[0], send[1], send[2])
-                await websocket.send(str_)
+                if send:
+                    str_ = 'fen %s %s %f' % (send[0], send[1], send[2])
+                    await websocket.send(str_)
 
-            if send_new_data:
-                flog('%s] send "%s"' % (remote_addr, send_new_data))
-                await websocket.send(send_new_data)
+                if send_new_data:
+                    flog('%s] send "%s"' % (remote_addr, send_new_data))
+                    await websocket.send(send_new_data)
 
-            if send_msg:
-                str_ = 'msg %f %s' % (send_msg[1], send_msg[0])
-                await websocket.send(str_)
+                if send_msg:
+                    str_ = 'msg %f %s' % (send_msg[1], send_msg[0])
+                    await websocket.send(str_)
 
-            if send_np:
-                str_ = 'new_pair %s %s %f' % (send_np[0], send_np[1], send_np[2])
-                await websocket.send(str_)
+                if send_np:
+                    str_ = 'new_pair %s %s %f' % (send_np[0], send_np[1], send_np[2])
+                    await websocket.send(str_)
 
-            await asyncio.sleep(0.25)
+                await asyncio.sleep(0.25)
+
+        elif 'list' in path:
+            await websocket.send(json.dumps(get_players_idlers()))
 
     except websockets.exceptions.ConnectionClosedOK:
         flog('%s] ws_serve: socket disconnected' % remote_addr)
@@ -124,6 +133,40 @@ async def ws_serve(websocket, path):
         fh = open(logfile, 'a')
         traceback.print_exc(file=fh)
         fh.close()
+
+def get_players_idlers():
+    out = {}
+    idlers = []
+    players = []
+
+    with lock:   
+        for clnt in idle_clients:    
+            p1 = clnt[0] 
+
+            record = { 'name' : p1.name, 'user' : clnt[1] }
+
+            idlers.append(record)
+
+        for couple in playing_clients:  
+            clnt1 = couple[0]   
+            p1 = clnt1[0]   
+            p1_name = p1.name   
+            p1_user = clnt1[1]  
+
+            la1 = last_activity[p1_name] if p1_name in last_activity else 0
+
+            clnt2 = couple[1]   
+            p2 = clnt2[0]   
+            p2_name = p2.name   
+            p2_user = clnt2[1]
+
+            la2 = last_activity[p2_name] if p2_name in last_activity else 0
+
+            players.append({ 'player_1' : { 'user' : p1_user, 'name' : p1_name, 'last_activity' : la1 }, 'player_2' : { 'user' : p2_user, 'name' : p2_name, 'last_activity' : la2 } })
+
+    out = { 'idle' : idlers, 'playing' : players }
+
+    return out
 
 def run_websockets_server():
     start_server = websockets.serve(ws_serve, ws_interface, ws_port)
@@ -201,9 +244,6 @@ except Exception as e:
 
 temp = open(book, 'r').readlines()
 book_lines = [line.rstrip('\n') for line in temp]
-
-lock = threading.Lock()
-last_activity = {}
 
 def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
     global book_lines
@@ -700,9 +740,6 @@ def client_listener():
         t = threading.Thread(target=add_client, args=(cs,addr,))
         t.start()
 
-
-idle_clients = []
-playing_clients = []
 
 t = threading.Thread(target=match_scheduler)
 t.start()
