@@ -212,7 +212,7 @@ def add_ws_move_record(pair, m):
     record['move_took'] = math.ceil(m['took'] * 1000.0)
     record['timestamp'] = math.floor(m['ts'] * 1000.0)
 
-    flog('%s add %s' % (pair, json.dumps(record)))
+    #flog('%s add %s' % (pair, json.dumps(record)))
 
     with ws_data_lock:
         ws_new_data[pair].append(record)
@@ -224,7 +224,7 @@ def add_ws_msg_record(pair, txt):
     record['msg'] = txt
     record['timestamp'] = math.floor(time.time() * 1000.0)
 
-    flog('%s add %s' % (pair, json.dumps(record)))
+    #flog('%s add %s' % (pair, json.dumps(record)))
 
     with ws_data_lock:
         ws_new_data[pair].append(record)
@@ -546,6 +546,8 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
                 else:
                     c.execute("UPDATE players SET d=d+1 WHERE user=%s", (p1_user,))
                     c.execute("UPDATE players SET d=d+1 WHERE user=%s", (p2_user,))
+
+                c.execute("UPDATE players SET last_game=from_unixtime(%s) WHERE user=%s or user=%s", (int(game_start), p1_user, p2_user,))
 
                 del i
 
