@@ -16,7 +16,7 @@ import time
 import traceback
 import websockets
 
-from EloPy import elopy
+from glicko import glicko_wrapper
 
 import ataxx.pgn
 import ataxx.uai
@@ -512,30 +512,27 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
             # update rating of the user
             if not fail1 and not fail2:
-                i = elopy.Implementation()
-
                 c = conn.cursor()
 
                 # get
-                c.execute("SELECT rating FROM players WHERE user=%s", (p1_user,))
+                c.execute("SELECT rating, rd, unix_timestamp(last_game) FROM players WHERE user=%s", (p1_user,))
                 row = c.fetchone()
-                i.addPlayer(p1_user, rating=float(row[0]))
+                p1_user_rating = float(row[0])
+                p1_user_rd = row[1] if row[1] else 350
+                p1_lg = row[2] if row[2] else 0
 
-                c.execute("SELECT rating FROM players WHERE user=%s", (p2_user,))
+                c.execute("SELECT rating, rd, unix_timestamp(last_game) FROM players WHERE user=%s", (p2_user,))
                 row = c.fetchone()
-                i.addPlayer(p2_user, rating=float(row[0]))
+                p2_user_rating = float(row[0])
+                p2_user_rd = row[1] if row[1] else 350
+                p2_lg = row[2] if row[2] else 0
 
                 # update
-                if board.result() == '1-0':
-                    i.recordMatch(p1_user, p2_user, winner=p1_user)
-                elif board.result() == '0-1':
-                    i.recordMatch(p1_user, p2_user, winner=p2_user)
-                else:
-                    i.recordMatch(p1_user, p2_user, draw=True)
+                new_rating_1, new_rd_1, new_rating_2, new_rd_2 = glicko_wrapper(p1_user_rating, p1_user_rd, p1_lg, p2_user_rating, p2_user_rd, p2_lg, board.result())
 
                 # put
-                for r in i.getRatingList():
-                    c.execute("UPDATE players SET rating=%s WHERE user=%s", (r[1], r[0]))
+                c.execute("UPDATE players SET rating=%s, last_game=from_unixtime(%s), rd=%s WHERE user=%s", (new_rating_1, int(game_start), new_rd_1, p1_user,))
+                c.execute("UPDATE players SET rating=%s, last_game=from_unixtime(%s), rd=%s WHERE user=%s", (new_rating_2, int(game_start), new_rd_2, p2_user,))
 
                 if board.result() == '1-0':
                     c.execute("UPDATE players SET w=w+1 WHERE user=%s", (p1_user,))
@@ -546,10 +543,6 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
                 else:
                     c.execute("UPDATE players SET d=d+1 WHERE user=%s", (p1_user,))
                     c.execute("UPDATE players SET d=d+1 WHERE user=%s", (p2_user,))
-
-                c.execute("UPDATE players SET last_game=from_unixtime(%s) WHERE user=%s or user=%s", (int(game_start), p1_user, p2_user,))
-
-                del i
 
             conn.commit()
             conn.close()
