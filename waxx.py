@@ -137,7 +137,7 @@ async def ws_serve(websocket, path):
                     await websocket.send(json.dumps(get_players_idlers()))
                     plc = lc
 
-                await asyncio.sleep(1)
+                await asyncio.sleep(1.5)
 
     except websockets.exceptions.ConnectionClosedOK:
         flog('%s] ws_serve: socket disconnected' % remote_addr)
@@ -461,7 +461,9 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
         if reason:
             game.set_adjudicated(reason)
 
-        flog('%s(%s) versus %s(%s): %s (%s)' % (p1.name, p1_user, p2.name, p2_user, board.result(), reason))
+        result = board.result()
+
+        flog('%s(%s) versus %s(%s): %s (%s)' % (p1.name, p1_user, p2.name, p2_user, result, reason))
 
         now = time.time()
 
@@ -502,7 +504,7 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
             adjudication = reason if reason != None else ''
 
             c = conn.cursor()
-            c.execute("INSERT INTO results(ts, p1, e1, t1, p2, e2, t2, result, adjudication, plies, tpm, pgn, md5, score) VALUES(NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", (p1_user, p1.name, t1, p2_user, p2.name, t2, board.result(), adjudication, n_ply, t, pgn, hash_, board.score()))
+            c.execute("INSERT INTO results(ts, p1, e1, t1, p2, e2, t2, result, adjudication, plies, tpm, pgn, md5, score) VALUES(NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", (p1_user, p1.name, t1, p2_user, p2.name, t2, result, adjudication, n_ply, t, pgn, hash_, board.score()))
             id_ = c.lastrowid
 
             c = conn.cursor()
@@ -511,38 +513,41 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
                 c.execute('INSERT INTO moves(results_id, move_nr, fen, move, took, score, is_p1) VALUES(%s, %s, %s, %s, %s, %s, %s)', (id_, m['move_nr'], m['fen'], m['move'], m['took'], m['score'], m['is_p1']))
 
             # update rating of the user
-            if not fail1 and not fail2:
+            if not fail1 and not fail2 and result != '*':
                 c = conn.cursor()
 
                 # get
                 c.execute("SELECT rating, rd, unix_timestamp(last_game) FROM players WHERE user=%s", (p1_user,))
                 row = c.fetchone()
-                p1_user_rating = float(row[0])
+                p1_user_rating = row[0] if row[0] else 1500
                 p1_user_rd = row[1] if row[1] else 350
                 p1_lg = row[2] if row[2] else 0
 
                 c.execute("SELECT rating, rd, unix_timestamp(last_game) FROM players WHERE user=%s", (p2_user,))
                 row = c.fetchone()
-                p2_user_rating = float(row[0])
+                p2_user_rating = row[0] if row[0] else 1500
                 p2_user_rd = row[1] if row[1] else 350
                 p2_lg = row[2] if row[2] else 0
 
                 # update
-                new_rating_1, new_rd_1, new_rating_2, new_rd_2 = glicko_wrapper(p1_user_rating, p1_user_rd, p1_lg, p2_user_rating, p2_user_rd, p2_lg, board.result())
+                new_rating_1, new_rd_1, new_rating_2, new_rd_2 = glicko_wrapper(p1_user_rating, p1_user_rd, p1_lg, p2_user_rating, p2_user_rd, p2_lg, result)
 
                 # put
                 c.execute("UPDATE players SET rating=%s, last_game=from_unixtime(%s), rd=%s WHERE user=%s", (new_rating_1, int(game_start), new_rd_1, p1_user,))
                 c.execute("UPDATE players SET rating=%s, last_game=from_unixtime(%s), rd=%s WHERE user=%s", (new_rating_2, int(game_start), new_rd_2, p2_user,))
 
-                if board.result() == '1-0':
+                if result == '1-0':
                     c.execute("UPDATE players SET w=w+1 WHERE user=%s", (p1_user,))
                     c.execute("UPDATE players SET l=l+1 WHERE user=%s", (p2_user,))
-                elif board.result() == '0-1':
+                elif result == '0-1':
                     c.execute("UPDATE players SET l=l+1 WHERE user=%s", (p1_user,))
                     c.execute("UPDATE players SET w=w+1 WHERE user=%s", (p2_user,))
                 else:
                     c.execute("UPDATE players SET d=d+1 WHERE user=%s", (p1_user,))
                     c.execute("UPDATE players SET d=d+1 WHERE user=%s", (p2_user,))
+
+                flog('new rating of %s: %f (%f)' % (p1_user, new_rating_1, new_rd_1))
+                flog('new rating of %s: %f (%f)' % (p2_user, new_rating_2, new_rd_2))
 
             conn.commit()
             conn.close()
@@ -680,7 +685,12 @@ def add_client(sck, addr):
     try:
         buf = ''
         while not '\n' in buf or not 'user ' in buf:
-            buf += sck.recv(1024).decode()
+            data = sck.recv(1024)
+            if not data or data == '':
+                sck.close()
+                return
+
+            buf += data.decode()
 
         lf = buf.find('\n')
         user = buf[5:lf].lower().strip()
@@ -691,7 +701,12 @@ def add_client(sck, addr):
 
         buf = buf[lf + 1:]
         while not '\n' in buf or not 'pass ' in buf:
-            buf += sck.recv(1024).decode()
+            data = sck.recv(1024)
+            if not data or data == '':
+                sck.close()
+                return
+
+            buf += data.decode()
 
         lf = buf.find('\n')
         password = buf[5:lf].strip()
@@ -709,7 +724,7 @@ def add_client(sck, addr):
         if row == None:
             conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
             c = conn.cursor()
-            c.execute('INSERT INTO players(user, password, rating) VALUES(%s, %s, 1000)', (user, password,))
+            c.execute('INSERT INTO players(user, password, rating, rd) VALUES(%s, %s, 1500, 350)', (user, password,))
             conn.commit()
             conn.close()
 
