@@ -299,8 +299,7 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
         moves = []
 
         while not board.gameover():
-            start = time.time()
-            took = None
+            start = took = None
 
             who = p1.name if board.turn == ataxx.BLACK else p2.name
             side = "black" if board.turn == ataxx.BLACK else "white"
@@ -320,6 +319,8 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
             if board.turn == ataxx.BLACK:
                 p1.position(board.get_fen())
+
+                start = time.time()
 
                 try:
                     bestmove, ponder = p1.go(movetime=t, maxwait=maxwait)
@@ -344,6 +345,8 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
             else:
                 p2.position(board.get_fen())
+
+                start = time.time()
 
                 try:
                     bestmove, ponder = p2.go(movetime=t, maxwait=maxwait)
