@@ -1,6 +1,7 @@
 #! /usr/bin/python3
 
 import asyncio
+import gc
 import hashlib
 import json
 import logging
@@ -320,12 +321,16 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
             if board.turn == ataxx.BLACK:
                 p1.position(board.get_fen())
 
+                gc.disable()
                 start = time.time()
 
                 try:
                     bestmove, ponder = p1.go(movetime=t, maxwait=maxwait)
                 except Exception as e:
                     flog('p1.go (%s) threw %s' % (p1.name, e))
+
+                now = time.time()
+                gc.enable()
 
                 if bestmove == None:
                     fail1 = True
@@ -335,7 +340,6 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
                     except:
                         pass
 
-                now = time.time()
                 took = now - start
                 t1 += took
 
@@ -346,12 +350,16 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
             else:
                 p2.position(board.get_fen())
 
+                gc.disable()
                 start = time.time()
 
                 try:
                     bestmove, ponder = p2.go(movetime=t, maxwait=maxwait)
                 except Exception as e:
                     flog('p2.go (%s) threw %s' % (p2.name, e))
+
+                now = time.time()
+                gc.enable()
 
                 if bestmove == None:
                     fail2 = True
@@ -361,7 +369,6 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
                     except:
                         pass
 
-                now = time.time()
                 took = now - start
                 t2 += took
 
