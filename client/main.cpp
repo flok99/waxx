@@ -93,6 +93,8 @@ int main(int argc, char **argv)
 		}
 		while(s == -1);
 
+		set_nodelay(s);
+
 		std::string user_str = myformat("user %s\r\n", user);
 		if (WRITE(s, user_str.c_str(), user_str.size()) <= 0) {
 			fprintf(stderr, "Failed sending username to server\n");

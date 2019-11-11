@@ -2,6 +2,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 
@@ -46,4 +49,11 @@ int connect_to(const char *host, const int portnr)
 	freeaddrinfo(result);
 
 	return -1;
+}
+
+void set_nodelay(int fd)
+{
+	int on = 1;
+	if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (char *) &on, sizeof(int)) == -1)
+		error_exit(true, "TCP_NODELAY");
 }
