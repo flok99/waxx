@@ -3,6 +3,7 @@
 #include <signal.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 
 #include "error.h"
 #include "proc.h"
@@ -176,6 +177,9 @@ int main(int argc, char **argv)
 		kill(SIGTERM, std::get<0>(prc));
 		close(std::get<1>(prc));
 		close(std::get<2>(prc));
+
+		int exit_status = 0;
+		wait(&exit_status);
 
 		close(s);
 
