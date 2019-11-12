@@ -57,3 +57,11 @@ void set_nodelay(int fd)
 	if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (char *) &on, sizeof(int)) == -1)
 		error_exit(true, "TCP_NODELAY");
 }
+
+void set_keepalive(int fd)
+{
+	int optval = 1;
+
+	if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &optval, sizeof optval) == -1)
+		error_exit(true, "SO_KEEPALIVE failed");
+}
