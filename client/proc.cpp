@@ -28,7 +28,7 @@ std::tuple<pid_t, int, int> exec_with_pipe(const char *const command)
 		for(int fd=3; fd<fd_max; fd++)
 			close(fd);
 
-		if (execlp(command, command, (void *)NULL) == -1)
+		if (execlp(command, command, nullptr) == -1)
 			error_exit(true, "Failed to invoke %s", command);
 	}
 

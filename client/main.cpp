@@ -13,7 +13,7 @@
 void print_time()
 {
 	struct timeval tv;
-	gettimeofday(&tv, NULL);
+	gettimeofday(&tv, nullptr);
 
 	struct tm *tm = localtime(&tv.tv_sec);
 

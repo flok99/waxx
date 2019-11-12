@@ -12,32 +12,29 @@
 
 int connect_to(const char *host, const int portnr)
 {
-	struct addrinfo hints;
-	memset(&hints, 0, sizeof(struct addrinfo));
+	struct addrinfo hints = { 0 };
 	hints.ai_family = AF_UNSPEC;    // Allow IPv4 or IPv6
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags = AI_PASSIVE;    // For wildcard IP address
 	hints.ai_protocol = 0;          // Any protocol
-	hints.ai_canonname = NULL;
-	hints.ai_addr = NULL;
-	hints.ai_next = NULL;
+	hints.ai_canonname = nullptr;
+	hints.ai_addr = nullptr;
+	hints.ai_next = nullptr;
 
-	char portnr_str[8];
+	char portnr_str[8] = { 0 };
 	snprintf(portnr_str, sizeof portnr_str, "%d", portnr);
 
-	struct addrinfo *result;
+	struct addrinfo *result = nullptr;
 	int rc = getaddrinfo(host, portnr_str, &hints, &result);
 	if (rc != 0) 
 		error_exit(false, "Problem resolving %s: %s\n", host, gai_strerror(rc));
 
-	for(struct addrinfo *rp = result; rp != NULL; rp = rp->ai_next)
-	{
+	for(struct addrinfo *rp = result; rp != nullptr; rp = rp->ai_next) {
 		int fd = socket(rp -> ai_family, rp -> ai_socktype, rp -> ai_protocol);
 		if (fd == -1)
 			continue;
 
-		if (connect(fd, rp -> ai_addr, rp -> ai_addrlen) == 0)
-		{
+		if (connect(fd, rp -> ai_addr, rp -> ai_addrlen) == 0) {
 			freeaddrinfo(result);
 
 			return fd;
