@@ -148,7 +148,8 @@ int main(int argc, char **argv)
 					break;
 				}
 			}
-			else if (fds[1].revents == POLLIN) {
+
+			if (fds[1].revents == POLLIN) {
 				int rc = read(fds[1].fd, buffer, sizeof(buffer) - 1);
 				if (rc == -1)
 					error_exit(true, "read error from program");
