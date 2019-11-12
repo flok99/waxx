@@ -1,3 +1,4 @@
+CXXFLAGS=-Ofast -Wall
 OBJS=proc.o error.o sock.o utils.o main.o
 
 all: aclient
