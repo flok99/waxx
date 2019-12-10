@@ -15,6 +15,7 @@ import sys
 import threading
 import time
 import traceback
+import urllib.parse
 import websockets
 
 from glicko import glicko_wrapper
@@ -65,24 +66,41 @@ ws_msgs = {}
 ws_new_data = {}
 ws_data_lock = threading.Lock()
 
-async def ws_serve(websocket, path):
+async def ws_serve(websocket, path_in):
     global last_change
     global lock
     global ws_data
     global ws_new_data
     global ws_data_lock
 
+    listen_pair = None
+
+    q = path_in.find('?')
+    if q != -1:
+        path = path_in[0:q]
+
+        parts = urllib.parse.parse_qs(path_in[q+1:])
+        if 'p1' in parts and 'p2' in parts:
+            p1 = parts['p1'][0]
+            p2 = parts['p2'][0]
+            listen_pair = p1 + '|' + p2
+
+    else:
+        path = path_in
+
     remote_addr = str(websocket.remote_address)
 
     try:
         flog('%s] websocket started, %s' % (remote_addr, path))
+        #flog('%s] websocket started, %s for %s' % (remote_addr, path, websocket.headers['x-forwarded-for']))
 
         if 'viewer' in path:
             await websocket.send('msg %f Initializing...' % time.time())
 
-            flog('%s] websocket waiting for pair-request' % remote_addr)
+            if not listen_pair:
+                flog('%s] websocket waiting for pair-request' % remote_addr)
+                listen_pair = await websocket.recv()
 
-            listen_pair = await websocket.recv()
             flog('%s] websocket is listening for %s' % (remote_addr, listen_pair))
 
             p_np = p_fen = p_msg = None
@@ -123,7 +141,11 @@ async def ws_serve(websocket, path):
                     str_ = 'new_pair %s %s %f' % (send_np[0], send_np[1], send_np[2])
                     await websocket.send(str_)
 
-                await asyncio.sleep(0.25)
+                #await asyncio.sleep(0.25)
+                try:
+                    listen_pair = await asyncio.wait_for(websocket.recv(), timeout=0.25)
+                except asyncio.TimeoutError:
+                    pass
 
         elif 'list' in path:
             plc = None
@@ -646,18 +668,22 @@ def match_scheduler():
             for loop in range(0, n_idle // 2):
                 i1 = i2 = 0
 
-                attempt = 0
-                while i1 == i2:
-                    i1 = random.choice(idle_clients)
+                if len(idle_clients) == 2:
+                    i1 = idle_clients[0]
+                    i2 = idle_clients[1]
 
-                    if len(idle_clients) > 2:
+                    if random.choice([True, False]):
+                        i1, i2 = i2, i1
+
+                else:
+                    attempt = 0
+                    while i1 == i2:
+                        i1 = random.choice(idle_clients)
                         i2 = select_client(idle_clients, i1)
-                    else:
-                        i2 = random.choice(idle_clients)
 
-                    attempt += 1
-                    if attempt >= 5:
-                        break
+                        attempt += 1
+                        if attempt >= 5:
+                            break
 
                 if i1 == i2:
                     flog('Cannot find a pair')
@@ -693,6 +719,9 @@ def add_client(sck, addr):
     global last_change
 
     try:
+        sck.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        sck.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+
         buf = ''
         while not '\n' in buf or not 'user ' in buf:
             data = sck.recv(1024)
@@ -782,8 +811,6 @@ def client_listener():
     while True:
         cs, addr = ss.accept()
         flog('tcp connection with %s %s ' % (cs, addr))
-
-        cs.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
         t = threading.Thread(target=add_client, args=(cs,addr,))
         t.start()
