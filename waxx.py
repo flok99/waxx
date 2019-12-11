@@ -428,7 +428,7 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
             n_ply += 1
 
-            flog('%s) %s => %s (%f)' % (who, board.get_fen(), bestmove, took))
+            #flog('%s) %s => %s (%f)' % (who, board.get_fen(), bestmove, took)) FIXME
 
             is_legal = False
             try:
@@ -619,99 +619,117 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
     except:
         pass
 
-# https://stackoverflow.com/questions/14992521/python-weighted-random
-def weighted_random(pairs):
-    total = sum(pair[0] for pair in pairs)
+def find_client_idle(tuple_list, element_1):
+    for t in tuple_list:
+        if t[1] == element_1:
+            return t
 
-    r = randint(1, total)
+    return None
 
-    for(weight, value) in pairs:
-        r -= weight
+def find_client_playing(tuple_list, element_1):
+    for t in tuple_list:
+        if t[0][1] == element_1:
+            return t[0]
 
-        if r <= 0:
-            return value
+        if t[1][1] == element_1:
+            return t[1]
 
-def select_client(idle_clients, first):
-    pairs = []
-
-    conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
-    c = conn.cursor()
-
-    c.execute('SELECT MAX(rating) AS max_rating FROM players')
-    max_ = c.fetchone()[0]
-
-    c.execute('SELECT rating FROM players WHERE user=%s', (first[1],))
-    first_rating = c.fetchone()[0]
-
-    for client in idle_clients:
-        c.execute('SELECT rating FROM players WHERE user=%s', (client[1],))
-        row = c.fetchone()
-
-        pairs.append((round(max_ - abs(first_rating - row[0])), client))
-
-    conn.close()
-
-    return weighted_random(pairs)
+    return None
 
 def match_scheduler():
-    global last_change
-
-    before = []
+    matches = []
 
     while True:
         with lock:
             n_idle = len(idle_clients)
             n_play = len(playing_clients)
 
-            flog('idle: %d, playing: %d' % (n_idle, n_play * 2))
+            delete_these = []
+            for m in matches:
+                if (not m[0] in idle_clients) and find_client_playing(playing_clients, m[0][1]) == None:
+                    flog('User %s is gone, purging %s-%s' % (m[0][1], m[0][1], m[1][1]))
+                    delete_these.append(m)
 
-            for loop in range(0, n_idle // 2):
-                i1 = i2 = 0
+                if (not m[1] in idle_clients) and find_client_playing(playing_clients, m[1][1]) == None:
+                    flog('User %s is gone, purging %s-%s' % (m[1][1], m[0][1], m[1][1]))
+                    delete_these.append(m)
 
-                if len(idle_clients) == 2:
-                    i1 = idle_clients[0]
-                    i2 = idle_clients[1]
+            for d in delete_these:
+                matches.remove(d)
 
-                    if random.choice([True, False]):
-                        i1, i2 = i2, i1
+            if len(matches) == 0 and n_idle >= 2:
+                # get list of elo-ratings for idle players
+                conn = mysql.connector.connect(host=db_host, user=db_user, passwd=db_pass, database=db_db)
+                c = conn.cursor()
 
-                else:
-                    attempt = 0
-                    while i1 == i2:
-                        i1 = random.choice(idle_clients)
-                        i2 = select_client(idle_clients, i1)
+                user_names = [ic[1] for ic in idle_clients]
+                format_string = ','.join(['%s'] * len(user_names))
+                c.execute("SELECT user, rating FROM players WHERE user IN (%s) ORDER BY rating DESC" % format_string, tuple(user_names))
 
-                        attempt += 1
-                        if attempt >= 5:
+                ratings = dict()
+                for row in c.fetchall():
+                    ratings[row[0]] = float(row[1])
+
+                conn.close()
+
+                # match
+                opponents = []
+                for user, rating in ratings.items():
+                    if len(opponents) > 0:
+                        for o in opponents:
+                            p1 = find_client_idle(idle_clients, user)
+                            p2 = find_client_idle(idle_clients, o[0])
+
+                            flog('scheduling game %s %s (and vice versa)' % (p1[1], p2[1]))
+
+                            matches.append((p1, p2))
+                            matches.append((p2, p1))
+
+                    opponents.append((user, rating))
+                    while len(opponents) > 2:
+                        del opponents[0]
+
+                for attempt in range(0, 5):
+                    p1 = find_client_idle(idle_clients, random.choice(user_names))
+                    p2 = find_client_idle(idle_clients, random.choice(user_names))
+
+                    if p1 != p2:
+                        ok = False
+
+                        if (p1, p2) not in matches:
+                            flog('random pairs, scheduling game %s %s (and vice versa)' % (p1[1], p2[1]))
+                            matches.append((p1, p2))
+                            ok = True
+
+                        if (p2, p1) not in matches:
+                            flog('random pairs, scheduling game %s %s (and vice versa)' % (p2[1], p1[1]))
+                            matches.append((p2, p1))
+                            ok = True
+
+                        if ok:
                             break
 
-                if i1 == i2:
-                    flog('Cannot find a pair')
-                    break
 
-                pair = '%s | %s' % (i1[1], i2[1])
+            flog('idle: %d, playing: %d, matches: %d' % (n_idle, n_play * 2, len(matches)))
+            flog('- idle: %s' % str([ic[1] for ic in idle_clients]))
+            flog('- playing: %s' % str(['%s-%s' % (p[0][1], p[1][1]) for p in playing_clients]))
+            flog('- matches: %s' % str(['%s-%s' % (m[0][1], m[1][1]) for m in matches]))
 
-                if pair in before:
-                    i1, i2 = i2, i1
-                    pair = '%s | %s' % (i1[1], i2[1])
+            delete_these = []
+            for m in matches:
+                if m[0] in idle_clients and m[1] in idle_clients:
+                    idle_clients.remove(m[0])
+                    idle_clients.remove(m[1])
 
-                if not pair in before or n_play == 0:
-                    last_change = time.time()
-                    idle_clients.remove(i1)
-                    idle_clients.remove(i2)
+                    playing_clients.append(m)
 
-                    playing_clients.append((i1, i2))
+                    delete_these.append(m)
 
-                    t = threading.Thread(target=play_game, args=(i1, i2, tpm, time_buffer_soft, time_buffer_hard, ))
+                    t = threading.Thread(target=play_game, args=(m[0], m[1], tpm, time_buffer_soft, time_buffer_hard, ))
                     t.start()
 
-                    before.append(pair)
-
-                    while len(before) >= match_history_size:
-                        del before[0]
-
-                else:
-                    flog('pair "%s" already in history' % pair)
+            for d in delete_these:
+                matches.remove(d)
 
         time.sleep(1.5)
 
