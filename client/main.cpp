@@ -180,6 +180,12 @@ int main(int argc, char **argv)
 		close(std::get<1>(prc));
 		close(std::get<2>(prc));
 
+		int wstatus = 0;
+		if (waitpid(-1, &wstatus, WNOHANG) == 0) {
+			sleep(1);
+			kill(SIGKILL, std::get<0>(prc));
+		}
+
 		int exit_status = 0;
 		wait(&exit_status);
 
