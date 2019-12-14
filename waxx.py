@@ -35,7 +35,7 @@ book = 'openings.txt'
 gauntlet = True
 
 # this user needs a GRANT ALL
-db_host = '192.168.64.1'
+db_host = '192.168.64.100' # FIXME
 db_user = 'user'
 db_pass = 'pass'
 db_db = 'waxx'
@@ -60,6 +60,7 @@ last_activity = {}
 idle_clients = []
 playing_clients = []
 last_change = 0
+matches = []
 
 ws_data = {}
 ws_msgs = {}
@@ -281,6 +282,18 @@ except Exception as e:
 
 temp = open(book, 'r').readlines()
 book_lines = [line.rstrip('\n') for line in temp]
+
+def purge_matches_by(who):
+    with lock:
+        delete_these = []
+
+        for m in matches:
+            if who == m[0][1] or who == m[1][1]:
+                flog('User %s is gone, purging %s-%s' % (who, m[0][1], m[1][1]))
+                delete_these.append(m)
+
+        for d in delete_these:
+            matches.remove(d)
 
 def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
     global book_lines
@@ -607,6 +620,8 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
     try:
         if fail1:
+            purge_matches_by(p1_user)
+
             p1_in[0].quit()
             del p1_in
     except:
@@ -614,6 +629,8 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
     try:
         if fail2:
+            purge_matches_by(p2_user)
+
             p2_in[0].quit()
             del p2_in
     except:
@@ -637,25 +654,10 @@ def find_client_playing(tuple_list, element_1):
     return None
 
 def match_scheduler():
-    matches = []
-
     while True:
         with lock:
             n_idle = len(idle_clients)
             n_play = len(playing_clients)
-
-            delete_these = []
-            for m in matches:
-                if (not m[0] in idle_clients) and find_client_playing(playing_clients, m[0][1]) == None:
-                    flog('User %s is gone, purging %s-%s' % (m[0][1], m[0][1], m[1][1]))
-                    delete_these.append(m)
-
-                if (not m[1] in idle_clients) and find_client_playing(playing_clients, m[1][1]) == None:
-                    flog('User %s is gone, purging %s-%s' % (m[1][1], m[0][1], m[1][1]))
-                    delete_these.append(m)
-
-            for d in delete_these:
-                matches.remove(d)
 
             if len(matches) == 0 and n_idle >= 2:
                 # get list of elo-ratings for idle players
@@ -733,6 +735,24 @@ def match_scheduler():
 
         time.sleep(1.5)
 
+def schedule_matches_for_new_player(player):
+        with lock:
+            for clnt in idle_clients:
+                if clnt == player:
+                    continue
+
+                matches.append((player, clnt))
+                matches.append((clnt, player))
+
+            for clients in playing_clients:
+                if clients[0] != player:
+                    matches.append((player, clients[0]))
+                    matches.append((clients[0], player))
+
+                if clients[1] != player:
+                    matches.append((player, clients[1]))
+                    matches.append((clients[1], player))
+
 def add_client(sck, addr):
     global last_change
 
@@ -802,6 +822,8 @@ def add_client(sck, addr):
         conn.commit()
         conn.close()
 
+        new_client = (e, user)
+
         with lock:
             for clnt in idle_clients:
                 if clnt[1] == user:
@@ -809,9 +831,11 @@ def add_client(sck, addr):
                     idle_clients.remove(clnt)
                     clnt[0].quit()
 
-            idle_clients.append((e, user))
+            idle_clients.append(new_client)
 
             last_change = time.time()
+
+        schedule_matches_for_new_player(new_client)
 
     except Exception as e:
         flog('Fail: %s' % e)
