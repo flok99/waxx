@@ -624,8 +624,11 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
             p1_in[0].quit()
             del p1_in
-    except:
-        pass
+    except Exception as e:
+        flog('failure: %s (%s)' % (e, pair))
+        fh = open(logfile, 'a')
+        traceback.print_exc(file=fh)
+        fh.close()
 
     try:
         if fail2:
@@ -633,8 +636,11 @@ def play_game(p1_in, p2_in, t, time_buffer_soft, time_buffer_hard):
 
             p2_in[0].quit()
             del p2_in
-    except:
-        pass
+    except Exception as e:
+        flog('failure: %s (%s)' % (e, pair))
+        fh = open(logfile, 'a')
+        traceback.print_exc(file=fh)
+        fh.close()
 
 def find_client_idle(tuple_list, element_1):
     for t in tuple_list:
@@ -736,22 +742,27 @@ def match_scheduler():
         time.sleep(1.5)
 
 def schedule_matches_for_new_player(player):
-        with lock:
-            for clnt in idle_clients:
-                if clnt == player:
-                    continue
+    flog('Scheduling new player %s' % player[1])
 
-                matches.append((player, clnt))
-                matches.append((clnt, player))
+    with lock:
+        for clnt in idle_clients:
+            if clnt == player:
+                continue
 
-            for clients in playing_clients:
-                if clients[0] != player:
-                    matches.append((player, clients[0]))
-                    matches.append((clients[0], player))
+            flog('Scheduling new player %s against %s' % (player[1], clnt[1]))
+            matches.append((player, clnt))
+            matches.append((clnt, player))
 
-                if clients[1] != player:
-                    matches.append((player, clients[1]))
-                    matches.append((clients[1], player))
+        for clients in playing_clients:
+            if clients[0][1] != player[1]:
+                flog('Scheduling new player %s against %s' % (player[1], clients[0][1]))
+                matches.append((player, clients[0]))
+                matches.append((clients[0], player))
+
+            if clients[1][1] != player[1]:
+                flog('Scheduling new player %s against %s' % (player[1], clients[1][1]))
+                matches.append((player, clients[1]))
+                matches.append((clients[1], player))
 
 def add_client(sck, addr):
     global last_change
