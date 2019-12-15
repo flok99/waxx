@@ -35,7 +35,7 @@ book = 'openings.txt'
 gauntlet = True
 
 # this user needs a GRANT ALL
-db_host = '192.168.64.100' # FIXME
+db_host = '192.168.64.1'
 db_user = 'user'
 db_pass = 'pass'
 db_db = 'waxx'
