@@ -70,6 +70,7 @@ ws_data_lock = threading.Lock()
 async def ws_serve(websocket, path_in):
     global last_change
     global lock
+    global matches
     global ws_data
     global ws_new_data
     global ws_data_lock
@@ -161,7 +162,24 @@ async def ws_serve(websocket, path_in):
                     await websocket.send(json.dumps(get_players_idlers()))
                     plc = lc
 
-                await asyncio.sleep(1.5)
+                await asyncio.sleep(2.0)
+
+        elif 'matches' in path:
+            mp = None
+
+            while True:
+                mc = None
+
+                with lock:
+                    mc = matches
+
+                if mc != mp:
+                    js_ready = [(m[0][1], m[1][1]) for m in mc]
+                    await websocket.send(json.dumps(js_ready))
+
+                    mp = mc
+
+                await asyncio.sleep(2.1)
 
     except websockets.exceptions.ConnectionClosedOK:
         flog('%s] ws_serve: socket disconnected' % remote_addr)
