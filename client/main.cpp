@@ -101,7 +101,6 @@ int main(int argc, char **argv)
 		if (WRITE(s, user_str.c_str(), user_str.size()) <= 0) {
 			fprintf(stderr, "Failed sending username to server\n");
 			close(s);
-			s = -1;
 			continue;
 		}
 
@@ -109,7 +108,6 @@ int main(int argc, char **argv)
 		if (WRITE(s, password_str.c_str(), password_str.size()) <= 0) {
 			fprintf(stderr, "Failed sending password to server\n");
 			close(s);
-			s = -1;
 			continue;
 		}
 
@@ -125,10 +123,12 @@ int main(int argc, char **argv)
 			if (poll(fds, 2, -1) == -1)
 				error_exit(true, "poll() failed");
 
-			if (fds[0].revents == POLLIN) {
+			if (fds[0].revents) {
 				int rc = read(fds[0].fd, buffer, sizeof(buffer) - 1);
-				if (rc == -1)
-					error_exit(true, "read error from socket");
+				if (rc == -1) {
+					fprintf(stderr, "read error from socket\n");
+					break;
+				}
 
 				if (rc == 0) {
 					fprintf(stderr, "Socket closed\n");
@@ -142,18 +142,22 @@ int main(int argc, char **argv)
 				}
 
 				rc = WRITE(std::get<1>(prc), buffer, rc);
-				if (rc == -1)
-					error_exit(true, "write fail to program");
+				if (rc == -1) {
+					fprintf(stderr, "write fail to program\n");
+					break;
+				}
 				if (rc == 0) {
 					fprintf(stderr, "program has gone away\n");
 					break;
 				}
 			}
 
-			if (fds[1].revents == POLLIN) {
+			if (fds[1].revents) {
 				int rc = read(fds[1].fd, buffer, sizeof(buffer) - 1);
-				if (rc == -1)
-					error_exit(true, "read error from program");
+				if (rc == -1) {
+					fprintf(stderr, "read error from program\n");
+					break;
+				}
 
 				if (rc == 0) {
 					fprintf(stderr, "Program closed\n");
@@ -167,8 +171,10 @@ int main(int argc, char **argv)
 				}
 
 				rc = WRITE(fds[0].fd, buffer, rc);
-				if (rc == -1)
-					error_exit(true, "write fail to socket");
+				if (rc == -1) {
+					fprintf(stderr, "write fail to socket\n");
+					break;
+				}
 				if (rc == 0) {
 					fprintf(stderr, "socket closed\n");
 					break;
